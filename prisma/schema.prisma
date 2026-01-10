@@ -1,0 +1,230 @@
+// Prisma Schema for Auth-Based Technical Blogging Platform
+// Generated for PostgreSQL with Supabase
+// Following PostgreSQL conventions with snake_case columns
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  AUTHOR
+  READER
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  ARCHIVED
+}
+
+enum PublishRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+// Better-Auth User Model (extended with our custom fields)
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  emailVerified Boolean  @default(false) @map("email_verified")
+  name          String?
+  image         String?
+  role          Role     @default(READER)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Better-Auth relations
+  accounts Account[]
+  sessions Session[]
+
+  // App relations
+  profile         Profile?
+  posts           Post[]
+  comments        Comment[]
+  publishRequests PublishRequest[]
+
+  @@map("users")
+  @@index([email])
+  @@index([role])
+}
+
+// Better-Auth Session Model
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime @map("expires_at")
+  token     String   @unique
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+  @@index([userId])
+}
+
+// Better-Auth Account Model (for OAuth providers)
+model Account {
+  id                      String    @id @default(cuid())
+  accountId               String    @map("account_id")
+  providerId              String    @map("provider_id")
+  userId                  String    @map("user_id")
+  accessToken             String?   @map("access_token")
+  refreshToken            String?   @map("refresh_token")
+  idToken                 String?   @map("id_token")
+  accessTokenExpiresAt    DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt   DateTime? @map("refresh_token_expires_at")
+  scope                   String?
+  password                String?
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("accounts")
+  @@index([userId])
+}
+
+// Better-Auth Verification Model
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("verifications")
+  @@unique([identifier, value])
+}
+
+model Profile {
+  id        String   @id @default(cuid())
+  userId    String   @unique @map("user_id")
+  name      String?
+  bio       String?  @db.Text
+  avatar    String?
+  website   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+  @@index([userId])
+}
+
+model Post {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String     @unique
+  content     String     @db.Text
+  excerpt     String?    @db.Text
+  coverImage  String?    @map("cover_image")
+  status      PostStatus @default(DRAFT)
+  viewCount   Int        @default(0) @map("view_count")
+  isFeatured  Boolean    @default(false) @map("is_featured")
+  publishedAt DateTime?  @map("published_at")
+  authorId    String     @map("author_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  author          User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  tags            PostTag[]
+  comments        Comment[]
+  publishRequests PublishRequest[]
+
+  @@map("posts")
+  @@index([slug])
+  @@index([authorId])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([isFeatured])
+  @@index([createdAt])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  posts PostTag[]
+
+  @@map("tags")
+  @@index([slug])
+}
+
+model PostTag {
+  postId String @map("post_id")
+  tagId  String @map("tag_id")
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@map("post_tags")
+  @@index([postId])
+  @@index([tagId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  postId    String   @map("post_id")
+  authorId  String   @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+  @@index([postId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model PublishRequest {
+  id        String               @id @default(cuid())
+  postId    String               @map("post_id")
+  authorId  String               @map("author_id")
+  status    PublishRequestStatus @default(PENDING)
+  message   String?              @db.Text
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  // Relations
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("publish_requests")
+  @@index([postId])
+  @@index([authorId])
+  @@index([status])
+  @@index([createdAt])
+}
