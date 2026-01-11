@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+.next
+coverage
+*.log
+.env
+.env.*
+generated
+prisma/migrations
+*.min.js
+*.min.css
+package-lock.json
+bun.lockb

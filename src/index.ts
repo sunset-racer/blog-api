@@ -14,16 +14,16 @@ const app = new Hono();
 // Middleware
 app.use("*", logger());
 app.use(
-  "*",
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    credentials: true,
-  })
+    "*",
+    cors({
+        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        credentials: true,
+    }),
 );
 
 // Better-Auth Routes
 app.on(["POST", "GET"], "/api/auth/**", (c) => {
-  return auth.handler(c.req.raw);
+    return auth.handler(c.req.raw);
 });
 
 // Routes
@@ -36,39 +36,39 @@ app.route("/api/upload", uploadRoute);
 
 // Root endpoint
 app.get("/", (c) => {
-  return c.json({
-    message: "Blog API - Auth-Based Technical Blogging Platform",
-    version: "1.0.0",
-    endpoints: {
-      health: "/health",
-      auth: "/api/auth/*",
-      me: "/api/me",
-      posts: "/api/posts",
-      publish: "/api/publish",
-      tags: "/api/tags",
-      upload: "/api/upload",
-    },
-  });
+    return c.json({
+        message: "Blog API - Auth-Based Technical Blogging Platform",
+        version: "1.0.0",
+        endpoints: {
+            health: "/health",
+            auth: "/api/auth/*",
+            me: "/api/me",
+            posts: "/api/posts",
+            publish: "/api/publish",
+            tags: "/api/tags",
+            upload: "/api/upload",
+        },
+    });
 });
 
 // 404 handler
 app.notFound((c) => {
-  return c.json({ error: "Not Found", path: c.req.path }, 404);
+    return c.json({ error: "Not Found", path: c.req.path }, 404);
 });
 
 // Error handler
 app.onError((err, c) => {
-  console.error(`Error: ${err.message}`);
-  return c.json(
-    {
-      error: "Internal Server Error",
-      message: process.env.NODE_ENV === "development" ? err.message : undefined,
-    },
-    500
-  );
+    console.error(`Error: ${err.message}`);
+    return c.json(
+        {
+            error: "Internal Server Error",
+            message: process.env.NODE_ENV === "development" ? err.message : undefined,
+        },
+        500,
+    );
 });
 
 export default {
-  port: process.env.PORT || 3001,
-  fetch: app.fetch,
+    port: process.env.PORT || 3001,
+    fetch: app.fetch,
 };
