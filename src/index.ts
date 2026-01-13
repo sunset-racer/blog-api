@@ -8,6 +8,7 @@ import postsRoute from "@/routes/posts";
 import publishRoute from "@/routes/publish";
 import tagsRoute from "@/routes/tags";
 import uploadRoute from "@/routes/upload";
+import commentsRoute from "@/routes/comments";
 
 const app = new Hono();
 
@@ -33,6 +34,7 @@ app.route("/api/posts", postsRoute);
 app.route("/api/publish", publishRoute);
 app.route("/api/tags", tagsRoute);
 app.route("/api/upload", uploadRoute);
+app.route("/api/comments", commentsRoute);
 
 // Root endpoint
 app.get("/", (c) => {
@@ -47,6 +49,7 @@ app.get("/", (c) => {
             publish: "/api/publish",
             tags: "/api/tags",
             upload: "/api/upload",
+            comments: "/api/comments",
         },
     });
 });
