@@ -12,7 +12,12 @@ const tags = new Hono<AuthContext>();
 // ============================================
 tags.get("/", async (c) => {
     const allTags = await prisma.tag.findMany({
-        include: {
+        select: {
+            id: true,
+            name: true,
+            slug: true,
+            createdAt: true,
+            updatedAt: true,
             _count: {
                 select: {
                     posts: true,
@@ -25,14 +30,7 @@ tags.get("/", async (c) => {
     });
 
     return c.json({
-        tags: allTags.map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-            slug: tag.slug,
-            postsCount: tag._count.posts,
-            createdAt: tag.createdAt,
-            updatedAt: tag.updatedAt,
-        })),
+        tags: allTags,
     });
 });
 
