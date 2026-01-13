@@ -87,6 +87,7 @@ posts.get("/", optionalAuth, async (c) => {
     return c.json({
         posts: postsData.map((post) => ({
             ...post,
+            views: post.viewCount, // Map viewCount to views
             tags: post.tags.map((pt) => pt.tag),
             commentsCount: post._count.comments,
         })),
@@ -164,6 +165,7 @@ posts.get("/:slug", optionalAuth, async (c) => {
 
     return c.json({
         ...post,
+        views: post.viewCount + (isPublished ? 1 : 0), // Map viewCount to views and add 1 if incremented
         tags: post.tags.map((pt) => pt.tag),
     });
 });
