@@ -9,6 +9,7 @@ import publishRoute from "@/routes/publish";
 import tagsRoute from "@/routes/tags";
 import uploadRoute from "@/routes/upload";
 import commentsRoute from "@/routes/comments";
+import usersRoute from "@/routes/users";
 
 const app = new Hono();
 
@@ -35,6 +36,7 @@ app.route("/api/publish", publishRoute);
 app.route("/api/tags", tagsRoute);
 app.route("/api/upload", uploadRoute);
 app.route("/api/comments", commentsRoute);
+app.route("/api/users", usersRoute);
 
 // Root endpoint
 app.get("/", (c) => {
@@ -50,6 +52,7 @@ app.get("/", (c) => {
             tags: "/api/tags",
             upload: "/api/upload",
             comments: "/api/comments",
+            users: "/api/users",
         },
     });
 });
