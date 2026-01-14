@@ -7,6 +7,39 @@ import { createCommentSchema, updateCommentSchema } from "@/schemas/post.schema"
 const comments = new Hono<AuthContext>();
 
 // ============================================
+// GET MY COMMENTS (All comments by current user)
+// ============================================
+comments.get("/my-comments", requireAuth, async (c) => {
+    const user = c.get("user");
+
+    const myComments = await prisma.comment.findMany({
+        where: { authorId: user.id },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    name: true,
+                    image: true,
+                },
+            },
+            post: {
+                select: {
+                    id: true,
+                    title: true,
+                    slug: true,
+                    status: true,
+                },
+            },
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+    });
+
+    return c.json({ comments: myComments });
+});
+
+// ============================================
 // GET COMMENTS FOR A POST
 // ============================================
 comments.get("/posts/:postId", optionalAuth, async (c) => {
