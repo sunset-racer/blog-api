@@ -1,10 +1,73 @@
 import { Hono } from "hono";
-import { requireAuth, optionalAuth, type AuthContext } from "@/middleware/auth";
+import { requireAuth, requireRole, optionalAuth, type AuthContext } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { validateBody } from "@/utils/validation";
 import { createCommentSchema, updateCommentSchema } from "@/schemas/post.schema";
 
 const comments = new Hono<AuthContext>();
+
+// ============================================
+// GET ALL COMMENTS (Admin only)
+// ============================================
+comments.get("/all", requireAuth, requireRole("ADMIN"), async (c) => {
+    const { search, authorId, postId, page = "1", limit = "20" } = c.req.query();
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build where clause
+    const where: Record<string, unknown> = {};
+
+    if (search) {
+        where.content = { contains: search, mode: "insensitive" };
+    }
+
+    if (authorId) {
+        where.authorId = authorId;
+    }
+
+    if (postId) {
+        where.postId = postId;
+    }
+
+    const [commentsData, total] = await Promise.all([
+        prisma.comment.findMany({
+            where,
+            include: {
+                author: {
+                    select: {
+                        id: true,
+                        name: true,
+                        image: true,
+                    },
+                },
+                post: {
+                    select: {
+                        id: true,
+                        title: true,
+                        slug: true,
+                        status: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            skip,
+            take: limitNum,
+        }),
+        prisma.comment.count({ where }),
+    ]);
+
+    return c.json({
+        comments: commentsData,
+        pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            totalPages: Math.ceil(total / limitNum),
+        },
+    });
+});
 
 // ============================================
 // GET MY COMMENTS (All comments by current user)
