@@ -1,4 +1,4 @@
-import { Context, Next } from "hono";
+import type { Context, Next } from "hono";
 import { auth } from "@/lib/auth";
 
 // Extend Hono's context with user info
@@ -24,7 +24,7 @@ export type AuthContext = {
  * Middleware to require authentication
  * Validates session and attaches user to context
  */
-export async function requireAuth(c: Context, next: Next) {
+export async function requireAuth(c: Context, next: Next): Promise<Response | void> {
     const session = await auth.api.getSession({
         headers: c.req.raw.headers,
     });
@@ -45,7 +45,7 @@ export async function requireAuth(c: Context, next: Next) {
  * Must be used after requireAuth
  */
 export function requireRole(...allowedRoles: string[]) {
-    return async (c: Context, next: Next) => {
+    return async (c: Context, next: Next): Promise<Response | void> => {
         const user = c.get("user");
 
         if (!user) {
@@ -71,7 +71,7 @@ export function requireRole(...allowedRoles: string[]) {
 /**
  * Optional auth middleware - attaches user if authenticated, but doesn't require it
  */
-export async function optionalAuth(c: Context, next: Next) {
+export async function optionalAuth(c: Context, next: Next): Promise<void> {
     try {
         const session = await auth.api.getSession({
             headers: c.req.raw.headers,
@@ -81,7 +81,7 @@ export async function optionalAuth(c: Context, next: Next) {
             c.set("user", session.user);
             c.set("session", session.session);
         }
-    } catch (error) {
+    } catch {
         // Ignore errors, this is optional auth
     }
 

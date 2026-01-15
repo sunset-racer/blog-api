@@ -18,7 +18,7 @@ export function escapeHtml(str: string): string {
         "=": "&#x3D;",
     };
 
-    return str.replace(/[&<>"'`=/]/g, (char) => htmlEntities[char]);
+    return str.replace(/[&<>"'`=/]/g, (char) => htmlEntities[char] ?? char);
 }
 
 /**
@@ -161,7 +161,7 @@ export function sanitizeObject<T extends Record<string, unknown>>(
 ): T {
     const { stripHtml: shouldStripHtml = false, escapeHtml: shouldEscapeHtml = false } = options;
 
-    const result = { ...obj };
+    const result: Record<string, unknown> = { ...obj };
 
     for (const key in result) {
         const value = result[key];
@@ -174,14 +174,14 @@ export function sanitizeObject<T extends Record<string, unknown>>(
             if (shouldEscapeHtml) {
                 sanitized = escapeHtml(sanitized);
             }
-            (result as Record<string, unknown>)[key] = sanitized.trim();
+            result[key] = sanitized.trim();
         } else if (value && typeof value === "object" && !Array.isArray(value)) {
-            (result as Record<string, unknown>)[key] = sanitizeObject(
+            result[key] = sanitizeObject(
                 value as Record<string, unknown>,
                 options
             );
         }
     }
 
-    return result;
+    return result as T;
 }

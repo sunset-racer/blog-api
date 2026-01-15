@@ -1,5 +1,6 @@
-import { Context } from "hono";
-import { ZodSchema, ZodError } from "zod";
+import type { Context } from "hono";
+import type { ZodSchema } from "zod";
+import { ZodError } from "zod";
 
 /**
  * Validates request body against a Zod schema
@@ -15,9 +16,9 @@ export async function validateBody<T>(c: Context, schema: ZodSchema<T>): Promise
             c.status(400);
             c.json({
                 error: "Validation Error",
-                issues: error.errors.map((err) => ({
-                    path: err.path.join("."),
-                    message: err.message,
+                issues: error.issues.map((issue) => ({
+                    path: issue.path.join("."),
+                    message: issue.message,
                 })),
             });
             return null;
@@ -39,9 +40,9 @@ export function validateQuery<T>(c: Context, schema: ZodSchema<T>): T | null {
             c.status(400);
             c.json({
                 error: "Validation Error",
-                issues: error.errors.map((err) => ({
-                    path: err.path.join("."),
-                    message: err.message,
+                issues: error.issues.map((issue) => ({
+                    path: issue.path.join("."),
+                    message: issue.message,
                 })),
             });
             return null;
