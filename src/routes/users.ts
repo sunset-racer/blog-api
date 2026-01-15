@@ -6,6 +6,123 @@ import { requireAuth, requireRole, type AuthContext } from "@/middleware/auth";
 
 const users = new Hono<AuthContext>();
 
+// Update profile schema
+const updateProfileSchema = z.object({
+    name: z.string().min(2, "Name must be at least 2 characters").max(100).optional(),
+    bio: z.string().max(500, "Bio must be less than 500 characters").optional().nullable(),
+    website: z.string().url("Invalid website URL").max(200).optional().nullable().or(z.literal("")),
+});
+
+// Update role schema
+const updateRoleSchema = z.object({
+    role: z.enum(["ADMIN", "AUTHOR", "READER"]),
+});
+
+// ============================================
+// CURRENT USER ROUTES - Must be before /:id
+// ============================================
+
+// GET /api/users/me - Get current user's profile
+users.get("/me", requireAuth, async (c) => {
+    const currentUser = c.get("user");
+
+    const user = await prisma.user.findUnique({
+        where: { id: currentUser.id },
+        select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+            emailVerified: true,
+            createdAt: true,
+            updatedAt: true,
+            profile: {
+                select: {
+                    bio: true,
+                    website: true,
+                },
+            },
+            _count: {
+                select: {
+                    posts: true,
+                    comments: true,
+                },
+            },
+        },
+    });
+
+    if (!user) {
+        return c.json({ error: "User not found" }, 404);
+    }
+
+    return c.json(user);
+});
+
+// PATCH /api/users/me - Update current user's profile
+users.patch("/me", requireAuth, zValidator("json", updateProfileSchema), async (c) => {
+    const currentUser = c.get("user");
+    const data = c.req.valid("json");
+
+    // Prepare user update data
+    const userUpdateData: { name?: string } = {};
+    if (data.name !== undefined) {
+        userUpdateData.name = data.name;
+    }
+
+    // Prepare profile update data
+    const profileUpdateData: { bio?: string | null; website?: string | null } = {};
+    if (data.bio !== undefined) {
+        profileUpdateData.bio = data.bio;
+    }
+    if (data.website !== undefined) {
+        // Convert empty string to null
+        profileUpdateData.website = data.website === "" ? null : data.website;
+    }
+
+    // Update user and profile in a transaction
+    const updatedUser = await prisma.user.update({
+        where: { id: currentUser.id },
+        data: {
+            ...userUpdateData,
+            profile: {
+                upsert: {
+                    create: profileUpdateData,
+                    update: profileUpdateData,
+                },
+            },
+        },
+        select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+            emailVerified: true,
+            createdAt: true,
+            updatedAt: true,
+            profile: {
+                select: {
+                    bio: true,
+                    website: true,
+                },
+            },
+            _count: {
+                select: {
+                    posts: true,
+                    comments: true,
+                },
+            },
+        },
+    });
+
+    return c.json(updatedUser);
+});
+
+// ============================================
+// ADMIN ROUTES
+// ============================================
+
 // GET /api/users - List all users (admin only)
 users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
     const { search, role, page = "1", limit = "20" } = c.req.query();
@@ -100,11 +217,6 @@ users.get("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
     }
 
     return c.json(user);
-});
-
-// Update role schema
-const updateRoleSchema = z.object({
-    role: z.enum(["ADMIN", "AUTHOR", "READER"]),
 });
 
 // PATCH /api/users/:id/role - Update user role (admin only)
