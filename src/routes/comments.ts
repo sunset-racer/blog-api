@@ -3,6 +3,7 @@ import { requireAuth, requireRole, optionalAuth, type AuthContext } from "@/midd
 import { prisma } from "@/lib/prisma";
 import { validateBody } from "@/utils/validation";
 import { createCommentSchema, updateCommentSchema } from "@/schemas/post.schema";
+import { escapeHtml } from "@/utils/sanitize";
 
 const comments = new Hono<AuthContext>();
 
@@ -167,9 +168,12 @@ comments.post("/posts/:postId", requireAuth, async (c) => {
         return c.json({ error: "Cannot comment on unpublished posts" }, 400);
     }
 
+    // Sanitize comment content (escape HTML to prevent XSS)
+    const sanitizedContent = escapeHtml(data.content);
+
     const comment = await prisma.comment.create({
         data: {
-            content: data.content,
+            content: sanitizedContent,
             postId,
             authorId: user.id,
         },
@@ -212,10 +216,13 @@ comments.put("/:id", requireAuth, async (c) => {
         return c.json({ error: "Forbidden" }, 403);
     }
 
+    // Sanitize comment content
+    const sanitizedContent = escapeHtml(data.content);
+
     const updatedComment = await prisma.comment.update({
         where: { id: commentId },
         data: {
-            content: data.content,
+            content: sanitizedContent,
         },
         include: {
             author: {

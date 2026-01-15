@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validateBody, validateQuery } from "@/utils/validation";
 import { createPostSchema, updatePostSchema, getPostsQuerySchema } from "@/schemas/post.schema";
 import { generateUniqueSlug, generateUniqueTagSlug } from "@/utils/slug";
+import { sanitizeMarkdown, sanitizeText } from "@/utils/sanitize";
 
 const posts = new Hono<AuthContext>();
 
@@ -98,6 +99,66 @@ posts.get("/", optionalAuth, async (c) => {
             totalPages: Math.ceil(total / limit),
             hasMore: page < Math.ceil(total / limit),
         },
+    });
+});
+
+// ============================================
+// GET SINGLE POST BY ID (for editing)
+// ============================================
+posts.get("/by-id/:id", requireAuth, async (c) => {
+    const postId = c.req.param("id");
+    const user = c.get("user");
+
+    const post = await prisma.post.findUnique({
+        where: { id: postId },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    image: true,
+                    role: true,
+                },
+            },
+            tags: {
+                include: {
+                    tag: true,
+                },
+            },
+            comments: {
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            name: true,
+                            image: true,
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+            },
+        },
+    });
+
+    if (!post) {
+        return c.json({ error: "Post not found" }, 404);
+    }
+
+    // Check if user can view this post (must be author or admin)
+    const isAuthor = user.id === post.authorId;
+    const isAdmin = user.role === "ADMIN";
+
+    if (!isAuthor && !isAdmin) {
+        return c.json({ error: "Forbidden" }, 403);
+    }
+
+    return c.json({
+        ...post,
+        views: post.viewCount,
+        tags: post.tags.map((pt) => pt.tag),
     });
 });
 
@@ -204,13 +265,18 @@ posts.post("/", requireAuth, requireRole("AUTHOR", "ADMIN"), async (c) => {
         }
     }
 
+    // Sanitize content
+    const sanitizedTitle = sanitizeText(data.title);
+    const sanitizedContent = sanitizeMarkdown(data.content);
+    const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
+
     // Create post
     const post = await prisma.post.create({
         data: {
-            title: data.title,
+            title: sanitizedTitle,
             slug,
-            content: data.content,
-            excerpt: data.excerpt,
+            content: sanitizedContent,
+            excerpt: sanitizedExcerpt,
             coverImage: data.coverImage,
             isFeatured: data.isFeatured || false,
             authorId: user.id,
@@ -311,14 +377,19 @@ posts.put("/:id", requireAuth, async (c) => {
         };
     }
 
+    // Sanitize content
+    const sanitizedTitle = data.title ? sanitizeText(data.title) : undefined;
+    const sanitizedContent = data.content ? sanitizeMarkdown(data.content) : undefined;
+    const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
+
     // Update post
     const updatedPost = await prisma.post.update({
         where: { id: postId },
         data: {
-            title: data.title,
+            title: sanitizedTitle,
             slug,
-            content: data.content,
-            excerpt: data.excerpt,
+            content: sanitizedContent,
+            excerpt: sanitizedExcerpt,
             coverImage: data.coverImage,
             isFeatured: data.isFeatured,
             ...tagUpdate,

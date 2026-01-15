@@ -2,6 +2,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { auth } from "@/lib/auth";
+import {
+    securityHeaders,
+    requestValidation,
+    jsonBodyLimit,
+    uploadBodyLimit,
+} from "@/middleware/security";
+import { generalRateLimit, authRateLimit, uploadRateLimit } from "@/middleware/rate-limit";
 import healthRoute from "@/routes/health";
 import meRoute from "@/routes/me";
 import postsRoute from "@/routes/posts";
@@ -13,18 +20,37 @@ import usersRoute from "@/routes/users";
 
 const app = new Hono();
 
-// Middleware
-app.use("*", logger());
+// CORS - MUST be first to handle preflight (OPTIONS) requests
 app.use(
     "*",
     cors({
         origin: process.env.FRONTEND_URL || "http://localhost:3000",
         credentials: true,
+        allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowHeaders: ["Content-Type", "Authorization"],
+        exposeHeaders: ["Content-Length"],
+        maxAge: 600,
     }),
 );
 
-// Better-Auth Routes
-app.on(["POST", "GET"], "/api/auth/**", (c) => {
+// Logging
+app.use("*", logger());
+
+// Security middleware (after CORS)
+app.use("*", securityHeaders);
+app.use("*", requestValidation);
+
+// Rate limiting
+app.use("/api/auth/*", authRateLimit);
+app.use("/api/upload/*", uploadRateLimit);
+app.use("/api/*", generalRateLimit);
+
+// Body size limits
+app.use("/api/upload/*", uploadBodyLimit);
+app.use("/api/*", jsonBodyLimit);
+
+// Better-Auth Routes - handle all methods
+app.all("/api/auth/*", (c) => {
     return auth.handler(c.req.raw);
 });
 
