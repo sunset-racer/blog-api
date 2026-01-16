@@ -2,14 +2,32 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@/lib/prisma";
 
-export const auth = betterAuth({
-    baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3001",
-    secret: process.env.BETTER_AUTH_SECRET!,
-    trustedOrigins: [
+const isProduction = process.env.NODE_ENV === "production";
+
+// Build trusted origins based on environment
+const trustedOrigins: string[] = [];
+
+if (isProduction) {
+    // Production: only use environment variables
+    if (process.env.FRONTEND_URL) {
+        trustedOrigins.push(process.env.FRONTEND_URL);
+    }
+    if (process.env.BETTER_AUTH_URL) {
+        trustedOrigins.push(process.env.BETTER_AUTH_URL);
+    }
+} else {
+    // Development: include localhost URLs
+    trustedOrigins.push(
         "http://localhost:3000",
         "http://localhost:3001",
         process.env.FRONTEND_URL || "http://localhost:3000",
-    ],
+    );
+}
+
+export const auth = betterAuth({
+    baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3001",
+    secret: process.env.BETTER_AUTH_SECRET!,
+    trustedOrigins,
     database: prismaAdapter(prisma, {
         provider: "postgresql",
     }),
