@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { HTTPException } from "hono/http-exception";
 import { auth } from "@/lib/auth";
+import { disconnectDatabase } from "@/lib/prisma";
 import {
     securityHeaders,
     requestValidation,
@@ -109,17 +111,68 @@ app.notFound((c) => {
     return c.json({ error: "Not Found", path: c.req.path }, 404);
 });
 
-// Error handler
+// Error handler with specific error types
 app.onError((err, c) => {
-    console.error(`Error: ${err.message}`);
+    // Handle Hono HTTP exceptions (validation errors, auth errors, etc.)
+    if (err instanceof HTTPException) {
+        return c.json(
+            {
+                error: err.message,
+                status: err.status,
+            },
+            err.status,
+        );
+    }
+
+    // Handle Prisma/database errors
+    if (err.name === "PrismaClientKnownRequestError") {
+        console.error(`Database error: ${err.message}`);
+        return c.json(
+            {
+                error: "Database operation failed",
+                code: (err as { code?: string }).code,
+            },
+            400,
+        );
+    }
+
+    // Handle validation errors (Zod, etc.)
+    if (err.name === "ZodError") {
+        return c.json(
+            {
+                error: "Validation failed",
+                details: isProduction ? undefined : err.message,
+            },
+            400,
+        );
+    }
+
+    // Generic server error
+    console.error(`Unhandled error: ${err.message}`, err.stack);
     return c.json(
         {
             error: "Internal Server Error",
-            message: process.env.NODE_ENV === "development" ? err.message : undefined,
+            message: isProduction ? undefined : err.message,
         },
         500,
     );
 });
+
+// Graceful shutdown handler
+const shutdown = async (signal: string) => {
+    console.log(`\n${signal} received. Starting graceful shutdown...`);
+    try {
+        await disconnectDatabase();
+        console.log("Graceful shutdown completed");
+        process.exit(0);
+    } catch (error) {
+        console.error("Error during shutdown:", error);
+        process.exit(1);
+    }
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 export default {
     port: process.env.PORT || 3001,

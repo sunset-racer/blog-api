@@ -4,8 +4,16 @@ import { createClient } from "@supabase/supabase-js";
 
 const upload = new Hono<AuthContext>();
 
+// Validate Supabase environment variables at startup
+if (!process.env.SUPABASE_URL) {
+    throw new Error("SUPABASE_URL environment variable is required");
+}
+if (!process.env.SUPABASE_ANON_KEY) {
+    throw new Error("SUPABASE_ANON_KEY environment variable is required");
+}
+
 // Initialize Supabase client
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 // Allowed image types
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];

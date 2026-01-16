@@ -100,11 +100,11 @@ export function rateLimiter(options: RateLimitOptions) {
  * Get client IP address from request
  */
 function getClientIP(c: Context): string {
-    // Check common proxy headers
+    // Check common proxy headers (Render uses x-forwarded-for)
     const forwarded = c.req.header("x-forwarded-for");
     if (forwarded) {
         const firstIP = forwarded.split(",")[0];
-        return firstIP ? firstIP.trim() : "unknown";
+        if (firstIP) return firstIP.trim();
     }
 
     const realIP = c.req.header("x-real-ip");
@@ -118,8 +118,25 @@ function getClientIP(c: Context): string {
         return cfIP;
     }
 
-    // Default fallback
-    return "unknown";
+    // Generate a unique identifier based on request characteristics
+    // This prevents all unknown clients from sharing one rate limit bucket
+    const userAgent = c.req.header("user-agent") || "";
+    const acceptLanguage = c.req.header("accept-language") || "";
+    const fingerprint = `unknown-${hashString(userAgent + acceptLanguage)}`;
+    return fingerprint;
+}
+
+/**
+ * Simple hash function for fingerprinting
+ */
+function hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
 }
 
 // Pre-configured rate limiters for different use cases

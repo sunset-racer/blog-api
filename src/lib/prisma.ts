@@ -9,7 +9,20 @@ if (!connectionString) {
     throw new Error("DATABASE_URL environment variable is not set");
 }
 
-const pool = new Pool({ connectionString });
+// Configure connection pool with appropriate limits
+const pool = new Pool({
+    connectionString,
+    max: 10, // Maximum number of connections in the pool
+    min: 2, // Minimum number of connections to maintain
+    idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+    connectionTimeoutMillis: 10000, // Timeout after 10 seconds when acquiring connection
+});
+
+// Handle pool errors
+pool.on("error", (err) => {
+    console.error("Unexpected database pool error:", err);
+});
+
 const adapter = new PrismaPg(pool);
 
 // Prisma Client singleton with PostgreSQL adapter
@@ -24,8 +37,15 @@ declare global {
 
 const prisma = globalThis.prismaGlobal ?? prismaClientSingleton();
 
-export { prisma };
+export { prisma, pool };
 
 if (process.env.NODE_ENV !== "production") {
     globalThis.prismaGlobal = prisma;
+}
+
+// Graceful shutdown function
+export async function disconnectDatabase(): Promise<void> {
+    await prisma.$disconnect();
+    await pool.end();
+    console.log("Database connections closed");
 }

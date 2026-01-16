@@ -4,17 +4,26 @@ import { prisma } from "@/lib/prisma";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// Validate required environment variables in production
+if (isProduction) {
+    if (!process.env.FRONTEND_URL) {
+        throw new Error("FRONTEND_URL environment variable is required in production");
+    }
+    if (!process.env.BETTER_AUTH_URL) {
+        throw new Error("BETTER_AUTH_URL environment variable is required in production");
+    }
+    if (!process.env.BETTER_AUTH_SECRET) {
+        throw new Error("BETTER_AUTH_SECRET environment variable is required in production");
+    }
+}
+
 // Build trusted origins based on environment
 const trustedOrigins: string[] = [];
 
 if (isProduction) {
-    // Production: only use environment variables
-    if (process.env.FRONTEND_URL) {
-        trustedOrigins.push(process.env.FRONTEND_URL);
-    }
-    if (process.env.BETTER_AUTH_URL) {
-        trustedOrigins.push(process.env.BETTER_AUTH_URL);
-    }
+    // Production: only use environment variables (validated above)
+    trustedOrigins.push(process.env.FRONTEND_URL!);
+    trustedOrigins.push(process.env.BETTER_AUTH_URL!);
 } else {
     // Development: include localhost URLs
     trustedOrigins.push(
@@ -41,6 +50,17 @@ export const auth = betterAuth({
         cookieCache: {
             enabled: true,
             maxAge: 5 * 60, // 5 minutes
+        },
+    },
+    advanced: {
+        crossSubDomainCookies: {
+            enabled: isProduction,
+        },
+        defaultCookieAttributes: {
+            secure: isProduction,
+            httpOnly: true,
+            sameSite: isProduction ? "none" : "lax", // "none" required for cross-domain in production
+            path: "/",
         },
     },
     socialProviders: {
