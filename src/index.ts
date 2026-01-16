@@ -21,14 +21,35 @@ import usersRoute from "@/routes/users";
 const app = new Hono();
 
 // CORS - MUST be first to handle preflight (OPTIONS) requests
+const isProduction = process.env.NODE_ENV === "production";
+
+// Build allowed origins based on environment
+const allowedOrigins: string[] = [];
+if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+}
+if (!isProduction) {
+    // Development: include localhost URLs
+    allowedOrigins.push("http://localhost:3000", "http://localhost:3001");
+}
+
 app.use(
     "*",
     cors({
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        origin: (origin) => {
+            // Allow requests with no origin (mobile apps, curl, etc.)
+            if (!origin) return process.env.FRONTEND_URL || "http://localhost:3000";
+            // Check if origin is in allowed list
+            if (allowedOrigins.includes(origin)) return origin;
+            // In development, be more permissive
+            if (!isProduction && origin.startsWith("http://localhost:")) return origin;
+            // Default: return the FRONTEND_URL or reject
+            return null;
+        },
         credentials: true,
         allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allowHeaders: ["Content-Type", "Authorization"],
-        exposeHeaders: ["Content-Length"],
+        exposeHeaders: ["Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
         maxAge: 600,
     }),
 );
