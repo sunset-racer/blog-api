@@ -112,7 +112,7 @@ comments.get("/posts/:postId", optionalAuth, async (c) => {
     // Check if post exists and is published
     const post = await prisma.post.findUnique({
         where: { id: postId },
-        select: { status: true },
+        select: { status: true, authorId: true },
     });
 
     if (!post) {
@@ -121,8 +121,12 @@ comments.get("/posts/:postId", optionalAuth, async (c) => {
 
     // Only show comments for published posts (unless user is admin/author)
     const user = c.get("user");
-    if (post.status !== "PUBLISHED" && !user) {
-        return c.json({ error: "Post not found" }, 404);
+    if (post.status !== "PUBLISHED") {
+        const isAuthor = user?.id === post.authorId;
+        const isAdmin = user?.role === "ADMIN";
+        if (!isAuthor && !isAdmin) {
+            return c.json({ error: "Post not found" }, 404);
+        }
     }
 
     const postComments = await prisma.comment.findMany({

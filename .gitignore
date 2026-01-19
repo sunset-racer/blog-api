@@ -39,3 +39,4 @@ prisma/migrations/
 generated/prisma/
 
 api-endpoints.md
+analysis.md

@@ -21,15 +21,29 @@ posts.get("/", optionalAuth, async (c) => {
     // Build where clause
     const where: any = {};
 
-    // Only show published posts to non-authenticated users
+    // Apply visibility rules based on authentication and role
     const user = c.get("user");
+    const isAdmin = user?.role === "ADMIN";
+
     if (!user) {
         where.status = "PUBLISHED";
-    } else if (status) {
-        where.status = status;
+    } else if (isAdmin) {
+        if (status) where.status = status;
+    } else {
+        if (status && status !== "PUBLISHED") {
+            where.status = status;
+            where.authorId = user.id;
+        } else {
+            where.OR = [{ status: "PUBLISHED" }, { authorId: user.id }];
+        }
     }
 
-    if (authorId) where.authorId = authorId;
+    if (authorId) {
+        if (user && !isAdmin && authorId !== user.id) {
+            where.status = "PUBLISHED";
+        }
+        where.authorId = authorId;
+    }
     if (isFeatured !== undefined) where.isFeatured = isFeatured;
 
     if (tagSlug) {
@@ -41,11 +55,18 @@ posts.get("/", optionalAuth, async (c) => {
     }
 
     if (search) {
-        where.OR = [
+        const searchFilter = [
             { title: { contains: search, mode: "insensitive" } },
             { content: { contains: search, mode: "insensitive" } },
             { excerpt: { contains: search, mode: "insensitive" } },
         ];
+
+        if (where.OR) {
+            where.AND = [{ OR: where.OR }, { OR: searchFilter }];
+            delete where.OR;
+        } else {
+            where.OR = searchFilter;
+        }
     }
 
     // Execute query with pagination
@@ -242,63 +263,63 @@ posts.post("/", requireAuth, requireRole("AUTHOR", "ADMIN"), async (c) => {
     // Generate unique slug from title
     const slug = await generateUniqueSlug(data.title);
 
-    // Handle tags
-    const tagConnections = [];
-    if (data.tags && data.tags.length > 0) {
-        for (const tagName of data.tags) {
-            // Find or create tag
-            let tag = await prisma.tag.findFirst({
-                where: { name: { equals: tagName, mode: "insensitive" } },
-            });
-
-            if (!tag) {
-                const tagSlug = await generateUniqueTagSlug(tagName);
-                tag = await prisma.tag.create({
-                    data: {
-                        name: tagName,
-                        slug: tagSlug,
-                    },
-                });
-            }
-
-            tagConnections.push({ tagId: tag.id });
-        }
-    }
-
     // Sanitize content
     const sanitizedTitle = sanitizeText(data.title);
     const sanitizedContent = sanitizeMarkdown(data.content);
     const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
 
-    // Create post
-    const post = await prisma.post.create({
-        data: {
-            title: sanitizedTitle,
-            slug,
-            content: sanitizedContent,
-            excerpt: sanitizedExcerpt,
-            coverImage: data.coverImage,
-            isFeatured: data.isFeatured || false,
-            authorId: user.id,
-            status: "DRAFT",
-            tags: {
-                create: tagConnections,
-            },
-        },
-        include: {
-            author: {
-                select: {
-                    id: true,
-                    name: true,
-                    email: true,
+    // Create post with tag handling in a transaction
+    const post = await prisma.$transaction(async (tx) => {
+        const tagConnections = [];
+        if (data.tags && data.tags.length > 0) {
+            for (const tagName of data.tags) {
+                let tag = await tx.tag.findFirst({
+                    where: { name: { equals: tagName, mode: "insensitive" } },
+                });
+
+                if (!tag) {
+                    const tagSlug = await generateUniqueTagSlug(tagName);
+                    tag = await tx.tag.create({
+                        data: {
+                            name: tagName,
+                            slug: tagSlug,
+                        },
+                    });
+                }
+
+                tagConnections.push({ tagId: tag.id });
+            }
+        }
+
+        return tx.post.create({
+            data: {
+                title: sanitizedTitle,
+                slug,
+                content: sanitizedContent,
+                excerpt: sanitizedExcerpt,
+                coverImage: data.coverImage,
+                isFeatured: data.isFeatured || false,
+                authorId: user.id,
+                status: "DRAFT",
+                tags: {
+                    create: tagConnections,
                 },
             },
-            tags: {
-                include: {
-                    tag: true,
+            include: {
+                author: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+                tags: {
+                    include: {
+                        tag: true,
+                    },
                 },
             },
-        },
+        });
     });
 
     return c.json(
@@ -342,72 +363,71 @@ posts.put("/:id", requireAuth, async (c) => {
         slug = await generateUniqueSlug(data.title, postId);
     }
 
-    // Handle tags update
-    let tagUpdate = {};
-    if (data.tags) {
-        // Delete existing tag connections
-        await prisma.postTag.deleteMany({
-            where: { postId },
-        });
-
-        // Create new tag connections
-        const tagConnections = [];
-        for (const tagName of data.tags) {
-            let tag = await prisma.tag.findFirst({
-                where: { name: { equals: tagName, mode: "insensitive" } },
-            });
-
-            if (!tag) {
-                const tagSlug = await generateUniqueTagSlug(tagName);
-                tag = await prisma.tag.create({
-                    data: {
-                        name: tagName,
-                        slug: tagSlug,
-                    },
-                });
-            }
-
-            tagConnections.push({ tagId: tag.id });
-        }
-
-        tagUpdate = {
-            tags: {
-                create: tagConnections,
-            },
-        };
-    }
-
     // Sanitize content
     const sanitizedTitle = data.title ? sanitizeText(data.title) : undefined;
     const sanitizedContent = data.content ? sanitizeMarkdown(data.content) : undefined;
     const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
 
-    // Update post
-    const updatedPost = await prisma.post.update({
-        where: { id: postId },
-        data: {
-            title: sanitizedTitle,
-            slug,
-            content: sanitizedContent,
-            excerpt: sanitizedExcerpt,
-            coverImage: data.coverImage,
-            isFeatured: data.isFeatured,
-            ...tagUpdate,
-        },
-        include: {
-            author: {
-                select: {
-                    id: true,
-                    name: true,
-                    email: true,
+    // Update post and tags atomically
+    const updatedPost = await prisma.$transaction(async (tx) => {
+        let tagUpdate = {};
+        if (data.tags) {
+            await tx.postTag.deleteMany({
+                where: { postId },
+            });
+
+            const tagConnections = [];
+            for (const tagName of data.tags) {
+                let tag = await tx.tag.findFirst({
+                    where: { name: { equals: tagName, mode: "insensitive" } },
+                });
+
+                if (!tag) {
+                    const tagSlug = await generateUniqueTagSlug(tagName);
+                    tag = await tx.tag.create({
+                        data: {
+                            name: tagName,
+                            slug: tagSlug,
+                        },
+                    });
+                }
+
+                tagConnections.push({ tagId: tag.id });
+            }
+
+            tagUpdate = {
+                tags: {
+                    create: tagConnections,
+                },
+            };
+        }
+
+        return tx.post.update({
+            where: { id: postId },
+            data: {
+                title: sanitizedTitle,
+                slug,
+                content: sanitizedContent,
+                excerpt: sanitizedExcerpt,
+                coverImage: data.coverImage,
+                isFeatured: data.isFeatured,
+                ...tagUpdate,
+            },
+            include: {
+                author: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+                tags: {
+                    include: {
+                        tag: true,
+                    },
                 },
             },
-            tags: {
-                include: {
-                    tag: true,
-                },
-            },
-        },
+        });
     });
 
     return c.json({

@@ -25,9 +25,14 @@ export type AuthContext = {
  * Validates session and attaches user to context
  */
 export async function requireAuth(c: Context, next: Next): Promise<Response | void> {
-    const session = await auth.api.getSession({
-        headers: c.req.raw.headers,
-    });
+    let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+    try {
+        session = await auth.api.getSession({
+            headers: c.req.raw.headers,
+        });
+    } catch {
+        return c.json({ error: "Unauthorized", message: "Authentication required" }, 401);
+    }
 
     if (!session) {
         return c.json({ error: "Unauthorized", message: "Authentication required" }, 401);

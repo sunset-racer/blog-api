@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+if (!process.env.BETTER_AUTH_SECRET) {
+    throw new Error("BETTER_AUTH_SECRET environment variable is required");
+}
+
 // Validate required environment variables in production
 if (isProduction) {
     if (!process.env.FRONTEND_URL) {
@@ -12,9 +16,7 @@ if (isProduction) {
     if (!process.env.BETTER_AUTH_URL) {
         throw new Error("BETTER_AUTH_URL environment variable is required in production");
     }
-    if (!process.env.BETTER_AUTH_SECRET) {
-        throw new Error("BETTER_AUTH_SECRET environment variable is required in production");
-    }
+    // BETTER_AUTH_SECRET is validated for all environments above
 }
 
 // Build trusted origins based on environment

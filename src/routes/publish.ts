@@ -46,9 +46,9 @@ publish.post("/posts/:postId/request", requireAuth, requireRole("AUTHOR", "ADMIN
         return c.json({ error: "A publish request is already pending for this post" }, 400);
     }
 
-    // Create publish request and update post status
-    const [publishRequest] = await Promise.all([
-        prisma.publishRequest.create({
+    // Create publish request and update post status atomically
+    const publishRequest = await prisma.$transaction(async (tx) => {
+        const createdRequest = await tx.publishRequest.create({
             data: {
                 postId,
                 authorId: user.id,
@@ -71,12 +71,15 @@ publish.post("/posts/:postId/request", requireAuth, requireRole("AUTHOR", "ADMIN
                     },
                 },
             },
-        }),
-        prisma.post.update({
+        });
+
+        await tx.post.update({
             where: { id: postId },
             data: { status: "PENDING_APPROVAL" },
-        }),
-    ]);
+        });
+
+        return createdRequest;
+    });
 
     return c.json(publishRequest, 201);
 });
@@ -175,9 +178,9 @@ publish.post("/requests/:requestId/approve", requireAuth, requireRole("ADMIN"), 
         return c.json({ error: "This request has already been processed" }, 400);
     }
 
-    // Approve request and publish post
-    const [updatedRequest] = await Promise.all([
-        prisma.publishRequest.update({
+    // Approve request and publish post atomically
+    const updatedRequest = await prisma.$transaction(async (tx) => {
+        const updated = await tx.publishRequest.update({
             where: { id: requestId },
             data: {
                 status: "APPROVED",
@@ -199,15 +202,18 @@ publish.post("/requests/:requestId/approve", requireAuth, requireRole("ADMIN"), 
                     },
                 },
             },
-        }),
-        prisma.post.update({
+        });
+
+        await tx.post.update({
             where: { id: request.postId },
             data: {
                 status: "PUBLISHED",
                 publishedAt: new Date(),
             },
-        }),
-    ]);
+        });
+
+        return updated;
+    });
 
     return c.json(updatedRequest);
 });
@@ -232,9 +238,9 @@ publish.post("/requests/:requestId/reject", requireAuth, requireRole("ADMIN"), a
         return c.json({ error: "This request has already been processed" }, 400);
     }
 
-    // Reject request and revert post to draft
-    const [updatedRequest] = await Promise.all([
-        prisma.publishRequest.update({
+    // Reject request and revert post to draft atomically
+    const updatedRequest = await prisma.$transaction(async (tx) => {
+        const updated = await tx.publishRequest.update({
             where: { id: requestId },
             data: {
                 status: "REJECTED",
@@ -256,14 +262,17 @@ publish.post("/requests/:requestId/reject", requireAuth, requireRole("ADMIN"), a
                     },
                 },
             },
-        }),
-        prisma.post.update({
+        });
+
+        await tx.post.update({
             where: { id: request.postId },
             data: {
                 status: "DRAFT",
             },
-        }),
-    ]);
+        });
+
+        return updated;
+    });
 
     return c.json(updatedRequest);
 });
@@ -292,16 +301,16 @@ publish.delete("/requests/:requestId", requireAuth, async (c) => {
         return c.json({ error: "Only pending requests can be cancelled" }, 400);
     }
 
-    // Delete request and revert post to draft
-    await Promise.all([
-        prisma.publishRequest.delete({
+    // Delete request and revert post to draft atomically
+    await prisma.$transaction(async (tx) => {
+        await tx.publishRequest.delete({
             where: { id: requestId },
-        }),
-        prisma.post.update({
+        });
+        await tx.post.update({
             where: { id: request.postId },
             data: { status: "DRAFT" },
-        }),
-    ]);
+        });
+    });
 
     return c.json({ message: "Publish request cancelled successfully" });
 });

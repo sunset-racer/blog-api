@@ -4,16 +4,22 @@ import { createClient } from "@supabase/supabase-js";
 
 const upload = new Hono<AuthContext>();
 
-// Validate Supabase environment variables at startup
-if (!process.env.SUPABASE_URL) {
-    throw new Error("SUPABASE_URL environment variable is required");
-}
-if (!process.env.SUPABASE_ANON_KEY) {
-    throw new Error("SUPABASE_ANON_KEY environment variable is required");
-}
+let supabase: ReturnType<typeof createClient> | null = null;
 
-// Initialize Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+function getSupabaseClient() {
+    if (!process.env.SUPABASE_URL) {
+        throw new Error("SUPABASE_URL environment variable is required");
+    }
+    if (!process.env.SUPABASE_ANON_KEY) {
+        throw new Error("SUPABASE_ANON_KEY environment variable is required");
+    }
+
+    if (!supabase) {
+        supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    }
+
+    return supabase;
+}
 
 // Allowed image types
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
@@ -65,7 +71,8 @@ upload.post("/image", requireAuth, async (c) => {
         const uint8Array = new Uint8Array(arrayBuffer);
 
         // Upload to Supabase Storage
-        const { error } = await supabase.storage.from("uploads").upload(filePath, uint8Array, {
+        const supabaseClient = getSupabaseClient();
+        const { error } = await supabaseClient.storage.from("uploads").upload(filePath, uint8Array, {
             contentType: file.type,
             cacheControl: "3600",
             upsert: false,
@@ -77,7 +84,7 @@ upload.post("/image", requireAuth, async (c) => {
         }
 
         // Get public URL
-        const { data: urlData } = supabase.storage.from("uploads").getPublicUrl(filePath);
+        const { data: urlData } = supabaseClient.storage.from("uploads").getPublicUrl(filePath);
 
         return c.json({
             url: urlData.publicUrl,
@@ -112,7 +119,8 @@ upload.delete("/image", requireAuth, async (c) => {
         }
 
         // Delete from Supabase Storage
-        const { error } = await supabase.storage.from("uploads").remove([path]);
+        const supabaseClient = getSupabaseClient();
+        const { error } = await supabaseClient.storage.from("uploads").remove([path]);
 
         if (error) {
             console.error("Supabase delete error:", error);

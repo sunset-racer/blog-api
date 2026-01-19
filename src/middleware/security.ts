@@ -76,8 +76,13 @@ export async function requestValidation(c: Context, next: Next) {
     const suspiciousParams = ["<script", "javascript:", "data:text/html", "onerror=", "onload="];
 
     for (const [, value] of url.searchParams) {
-        const decodedValue = decodeURIComponent(value).toLowerCase();
-        if (suspiciousParams.some((pattern) => decodedValue.includes(pattern))) {
+        let decodedValue = value;
+        try {
+            decodedValue = decodeURIComponent(value);
+        } catch {
+            return c.json({ error: "Invalid request" }, 400);
+        }
+        if (suspiciousParams.some((pattern) => decodedValue.toLowerCase().includes(pattern))) {
             return c.json({ error: "Invalid request" }, 400);
         }
     }
