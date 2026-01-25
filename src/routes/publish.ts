@@ -1,16 +1,37 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole, type AuthContext } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
-import { validateBody } from "@/utils/validation";
-import { publishPostSchema, approvePublishRequestSchema, rejectPublishRequestSchema } from "@/schemas/post.schema";
+import { validateBody, validateParams, validateQuery } from "@/utils/validation";
+import {
+    publishPostSchema,
+    approvePublishRequestSchema,
+    rejectPublishRequestSchema,
+    getPublishRequestsQuerySchema,
+} from "@/schemas/post.schema";
+import { postIdParamSchema, requestIdParamSchema } from "@/schemas/params.schema";
 
 const publish = new Hono<AuthContext>();
+
+function isUniqueConstraintError(error: unknown, fields?: string[]): boolean {
+    if (!error || typeof error !== "object") return false;
+    const prismaError = error as { code?: string; meta?: { target?: string[] | string } };
+    if (prismaError.code !== "P2002") return false;
+    if (!fields || fields.length === 0) return true;
+    const target = prismaError.meta?.target;
+    if (!target) return true;
+    if (Array.isArray(target)) {
+        return fields.some((field) => target.includes(field));
+    }
+    return fields.includes(target);
+}
 
 // ============================================
 // REQUEST PUBLISH (Author requests to publish their draft)
 // ============================================
 publish.post("/posts/:postId/request", requireAuth, requireRole("AUTHOR", "ADMIN"), async (c) => {
-    const postId = c.req.param("postId");
+    const params = validateParams(c, postIdParamSchema);
+    if (!params) return;
+    const postId = params.postId;
     const user = c.get("user");
     const data = await validateBody(c, publishPostSchema);
     if (!data) return;
@@ -47,39 +68,47 @@ publish.post("/posts/:postId/request", requireAuth, requireRole("AUTHOR", "ADMIN
     }
 
     // Create publish request and update post status atomically
-    const publishRequest = await prisma.$transaction(async (tx) => {
-        const createdRequest = await tx.publishRequest.create({
-            data: {
-                postId,
-                authorId: user.id,
-                status: "PENDING",
-                message: data.message,
-            },
-            include: {
-                post: {
-                    select: {
-                        id: true,
-                        title: true,
-                        slug: true,
+    let publishRequest;
+    try {
+        publishRequest = await prisma.$transaction(async (tx) => {
+            const createdRequest = await tx.publishRequest.create({
+                data: {
+                    postId,
+                    authorId: user.id,
+                    status: "PENDING",
+                    message: data.message,
+                },
+                include: {
+                    post: {
+                        select: {
+                            id: true,
+                            title: true,
+                            slug: true,
+                        },
+                    },
+                    author: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                        },
                     },
                 },
-                author: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                    },
-                },
-            },
-        });
+            });
 
-        await tx.post.update({
-            where: { id: postId },
-            data: { status: "PENDING_APPROVAL" },
-        });
+            await tx.post.update({
+                where: { id: postId },
+                data: { status: "PENDING_APPROVAL" },
+            });
 
-        return createdRequest;
-    });
+            return createdRequest;
+        });
+    } catch (error) {
+        if (isUniqueConstraintError(error, ["postId", "status"])) {
+            return c.json({ error: "A publish request is already pending for this post" }, 400);
+        }
+        throw error;
+    }
 
     return c.json(publishRequest, 201);
 });
@@ -88,10 +117,12 @@ publish.post("/posts/:postId/request", requireAuth, requireRole("AUTHOR", "ADMIN
 // GET ALL PUBLISH REQUESTS (ADMIN only)
 // ============================================
 publish.get("/requests", requireAuth, requireRole("ADMIN"), async (c) => {
-    const status = c.req.query("status"); // PENDING, APPROVED, REJECTED
-    const authorId = c.req.query("authorId");
+    const query = validateQuery(c, getPublishRequestsQuerySchema);
+    if (!query) return;
 
-    const where: any = {};
+    const { status, authorId } = query;
+
+    const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (authorId) where.authorId = authorId;
 
@@ -158,7 +189,9 @@ publish.get("/my-requests", requireAuth, async (c) => {
 // APPROVE PUBLISH REQUEST (ADMIN only)
 // ============================================
 publish.post("/requests/:requestId/approve", requireAuth, requireRole("ADMIN"), async (c) => {
-    const requestId = c.req.param("requestId");
+    const params = validateParams(c, requestIdParamSchema);
+    if (!params) return;
+    const requestId = params.requestId;
     const data = await validateBody(c, approvePublishRequestSchema);
     if (!data) return;
 
@@ -222,7 +255,9 @@ publish.post("/requests/:requestId/approve", requireAuth, requireRole("ADMIN"), 
 // REJECT PUBLISH REQUEST (ADMIN only)
 // ============================================
 publish.post("/requests/:requestId/reject", requireAuth, requireRole("ADMIN"), async (c) => {
-    const requestId = c.req.param("requestId");
+    const params = validateParams(c, requestIdParamSchema);
+    if (!params) return;
+    const requestId = params.requestId;
     const data = await validateBody(c, rejectPublishRequestSchema);
     if (!data) return;
 
@@ -281,7 +316,9 @@ publish.post("/requests/:requestId/reject", requireAuth, requireRole("ADMIN"), a
 // CANCEL PUBLISH REQUEST (Author cancels their own request)
 // ============================================
 publish.delete("/requests/:requestId", requireAuth, async (c) => {
-    const requestId = c.req.param("requestId");
+    const params = validateParams(c, requestIdParamSchema);
+    if (!params) return;
+    const requestId = params.requestId;
     const user = c.get("user");
 
     const request = await prisma.publishRequest.findUnique({

@@ -100,22 +100,25 @@ export function rateLimiter(options: RateLimitOptions) {
  * Get client IP address from request
  */
 function getClientIP(c: Context): string {
-    // Check common proxy headers (Render uses x-forwarded-for)
-    const forwarded = c.req.header("x-forwarded-for");
-    if (forwarded) {
-        const firstIP = forwarded.split(",")[0];
-        if (firstIP) return firstIP.trim();
-    }
+    const trustProxy = process.env.TRUST_PROXY === "true";
+    if (trustProxy) {
+        // Check common proxy headers (Render uses x-forwarded-for)
+        const forwarded = c.req.header("x-forwarded-for");
+        if (forwarded) {
+            const firstIP = forwarded.split(",")[0];
+            if (firstIP) return firstIP.trim();
+        }
 
-    const realIP = c.req.header("x-real-ip");
-    if (realIP) {
-        return realIP;
-    }
+        const realIP = c.req.header("x-real-ip");
+        if (realIP) {
+            return realIP;
+        }
 
-    // Fallback to CF header if using Cloudflare
-    const cfIP = c.req.header("cf-connecting-ip");
-    if (cfIP) {
-        return cfIP;
+        // Fallback to CF header if using Cloudflare
+        const cfIP = c.req.header("cf-connecting-ip");
+        if (cfIP) {
+            return cfIP;
+        }
     }
 
     // Generate a unique identifier based on request characteristics

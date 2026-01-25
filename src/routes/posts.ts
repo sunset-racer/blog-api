@@ -1,12 +1,75 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole, optionalAuth, type AuthContext } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
-import { validateBody, validateQuery } from "@/utils/validation";
+import { validateBody, validateParams, validateQuery } from "@/utils/validation";
 import { createPostSchema, updatePostSchema, getPostsQuerySchema } from "@/schemas/post.schema";
 import { generateUniqueSlug, generateUniqueTagSlug } from "@/utils/slug";
 import { sanitizeMarkdown, sanitizeText } from "@/utils/sanitize";
+import { idParamSchema, postSlugParamSchema } from "@/schemas/params.schema";
 
 const posts = new Hono<AuthContext>();
+
+const MAX_SLUG_RETRIES = 3;
+
+function isUniqueConstraintError(error: unknown, fields?: string[]): boolean {
+    if (!error || typeof error !== "object") return false;
+    const prismaError = error as { code?: string; meta?: { target?: string[] | string } };
+    if (prismaError.code !== "P2002") return false;
+    if (!fields || fields.length === 0) return true;
+    const target = prismaError.meta?.target;
+    if (!target) return true;
+    if (Array.isArray(target)) {
+        return fields.some((field) => target.includes(field));
+    }
+    return fields.includes(target);
+}
+
+async function withSlugRetry<T>(slugFactory: () => Promise<string>, action: (slug: string) => Promise<T>): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
+        const slug = await slugFactory();
+        try {
+            return await action(slug);
+        } catch (error) {
+            if (isUniqueConstraintError(error, ["slug"])) {
+                lastError = error;
+                continue;
+            }
+            throw error;
+        }
+    }
+
+    throw lastError ?? new Error("Failed to create a unique slug");
+}
+
+type TransactionClient = Parameters<typeof prisma.$transaction>[0] extends (tx: infer T) => unknown
+    ? T
+    : never;
+
+async function getOrCreateTag(tx: TransactionClient, tagName: string) {
+    const existing = await tx.tag.findFirst({
+        where: { name: { equals: tagName, mode: "insensitive" } },
+    });
+    if (existing) return existing;
+
+    const tagSlug = await generateUniqueTagSlug(tagName);
+    try {
+        return await tx.tag.create({
+            data: {
+                name: tagName,
+                slug: tagSlug,
+            },
+        });
+    } catch (error) {
+        if (isUniqueConstraintError(error)) {
+            const fallback = await tx.tag.findFirst({
+                where: { name: { equals: tagName, mode: "insensitive" } },
+            });
+            if (fallback) return fallback;
+        }
+        throw error;
+    }
+}
 
 // ============================================
 // GET ALL POSTS (with pagination, search, filtering)
@@ -127,7 +190,9 @@ posts.get("/", optionalAuth, async (c) => {
 // GET SINGLE POST BY ID (for editing)
 // ============================================
 posts.get("/by-id/:id", requireAuth, async (c) => {
-    const postId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const postId = params.id;
     const user = c.get("user");
 
     const post = await prisma.post.findUnique({
@@ -187,7 +252,9 @@ posts.get("/by-id/:id", requireAuth, async (c) => {
 // GET SINGLE POST BY SLUG
 // ============================================
 posts.get("/:slug", optionalAuth, async (c) => {
-    const slug = c.req.param("slug");
+    const params = validateParams(c, postSlugParamSchema);
+    if (!params) return;
+    const slug = params.slug;
     const user = c.get("user");
 
     const post = await prisma.post.findUnique({
@@ -260,67 +327,55 @@ posts.post("/", requireAuth, requireRole("AUTHOR", "ADMIN"), async (c) => {
     const data = await validateBody(c, createPostSchema);
     if (!data) return;
 
-    // Generate unique slug from title
-    const slug = await generateUniqueSlug(data.title);
-
     // Sanitize content
     const sanitizedTitle = sanitizeText(data.title);
     const sanitizedContent = sanitizeMarkdown(data.content);
     const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
 
     // Create post with tag handling in a transaction
-    const post = await prisma.$transaction(async (tx) => {
-        const tagConnections = [];
-        if (data.tags && data.tags.length > 0) {
-            for (const tagName of data.tags) {
-                let tag = await tx.tag.findFirst({
-                    where: { name: { equals: tagName, mode: "insensitive" } },
-                });
-
-                if (!tag) {
-                    const tagSlug = await generateUniqueTagSlug(tagName);
-                    tag = await tx.tag.create({
-                        data: {
-                            name: tagName,
-                            slug: tagSlug,
-                        },
-                    });
+    const post = await withSlugRetry(
+        () => generateUniqueSlug(data.title),
+        (slug) =>
+            prisma.$transaction(async (tx) => {
+                const tagConnections = [];
+                if (data.tags && data.tags.length > 0) {
+                    for (const tagName of data.tags) {
+                        const tag = await getOrCreateTag(tx, tagName);
+                        tagConnections.push({ tagId: tag.id });
+                    }
                 }
 
-                tagConnections.push({ tagId: tag.id });
-            }
-        }
-
-        return tx.post.create({
-            data: {
-                title: sanitizedTitle,
-                slug,
-                content: sanitizedContent,
-                excerpt: sanitizedExcerpt,
-                coverImage: data.coverImage,
-                isFeatured: data.isFeatured || false,
-                authorId: user.id,
-                status: "DRAFT",
-                tags: {
-                    create: tagConnections,
-                },
-            },
-            include: {
-                author: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
+                return tx.post.create({
+                    data: {
+                        title: sanitizedTitle,
+                        slug,
+                        content: sanitizedContent,
+                        excerpt: sanitizedExcerpt,
+                        coverImage: data.coverImage,
+                        isFeatured: data.isFeatured || false,
+                        authorId: user.id,
+                        status: "DRAFT",
+                        tags: {
+                            create: tagConnections,
+                        },
                     },
-                },
-                tags: {
                     include: {
-                        tag: true,
+                        author: {
+                            select: {
+                                id: true,
+                                name: true,
+                                email: true,
+                            },
+                        },
+                        tags: {
+                            include: {
+                                tag: true,
+                            },
+                        },
                     },
-                },
-            },
-        });
-    });
+                });
+            })
+    );
 
     return c.json(
         {
@@ -335,7 +390,9 @@ posts.post("/", requireAuth, requireRole("AUTHOR", "ADMIN"), async (c) => {
 // UPDATE POST (Owner or ADMIN only)
 // ============================================
 posts.put("/:id", requireAuth, async (c) => {
-    const postId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const postId = params.id;
     const user = c.get("user");
     const data = await validateBody(c, updatePostSchema);
     if (!data) return;
@@ -357,78 +414,68 @@ posts.put("/:id", requireAuth, async (c) => {
         return c.json({ error: "Forbidden" }, 403);
     }
 
-    // Generate new slug if title changed
-    let slug = existingPost.slug;
-    if (data.title && data.title !== existingPost.title) {
-        slug = await generateUniqueSlug(data.title, postId);
-    }
-
     // Sanitize content
     const sanitizedTitle = data.title ? sanitizeText(data.title) : undefined;
     const sanitizedContent = data.content ? sanitizeMarkdown(data.content) : undefined;
     const sanitizedExcerpt = data.excerpt ? sanitizeText(data.excerpt) : undefined;
 
     // Update post and tags atomically
-    const updatedPost = await prisma.$transaction(async (tx) => {
-        let tagUpdate = {};
-        if (data.tags) {
-            await tx.postTag.deleteMany({
-                where: { postId },
-            });
-
-            const tagConnections = [];
-            for (const tagName of data.tags) {
-                let tag = await tx.tag.findFirst({
-                    where: { name: { equals: tagName, mode: "insensitive" } },
-                });
-
-                if (!tag) {
-                    const tagSlug = await generateUniqueTagSlug(tagName);
-                    tag = await tx.tag.create({
-                        data: {
-                            name: tagName,
-                            slug: tagSlug,
-                        },
+    const updatedPost = await withSlugRetry(
+        async () => {
+            if (data.title && data.title !== existingPost.title) {
+                return generateUniqueSlug(data.title, postId);
+            }
+            return existingPost.slug;
+        },
+        (slug) =>
+            prisma.$transaction(async (tx) => {
+                let tagUpdate = {};
+                if (data.tags) {
+                    await tx.postTag.deleteMany({
+                        where: { postId },
                     });
+
+                    const tagConnections = [];
+                    for (const tagName of data.tags) {
+                        const tag = await getOrCreateTag(tx, tagName);
+                        tagConnections.push({ tagId: tag.id });
+                    }
+
+                    tagUpdate = {
+                        tags: {
+                            create: tagConnections,
+                        },
+                    };
                 }
 
-                tagConnections.push({ tagId: tag.id });
-            }
-
-            tagUpdate = {
-                tags: {
-                    create: tagConnections,
-                },
-            };
-        }
-
-        return tx.post.update({
-            where: { id: postId },
-            data: {
-                title: sanitizedTitle,
-                slug,
-                content: sanitizedContent,
-                excerpt: sanitizedExcerpt,
-                coverImage: data.coverImage,
-                isFeatured: data.isFeatured,
-                ...tagUpdate,
-            },
-            include: {
-                author: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
+                return tx.post.update({
+                    where: { id: postId },
+                    data: {
+                        title: sanitizedTitle,
+                        slug,
+                        content: sanitizedContent,
+                        excerpt: sanitizedExcerpt,
+                        coverImage: data.coverImage,
+                        isFeatured: data.isFeatured,
+                        ...tagUpdate,
                     },
-                },
-                tags: {
                     include: {
-                        tag: true,
+                        author: {
+                            select: {
+                                id: true,
+                                name: true,
+                                email: true,
+                            },
+                        },
+                        tags: {
+                            include: {
+                                tag: true,
+                            },
+                        },
                     },
-                },
-            },
-        });
-    });
+                });
+            })
+    );
 
     return c.json({
         ...updatedPost,
@@ -440,7 +487,9 @@ posts.put("/:id", requireAuth, async (c) => {
 // DELETE POST (Owner or ADMIN only)
 // ============================================
 posts.delete("/:id", requireAuth, async (c) => {
-    const postId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const postId = params.id;
     const user = c.get("user");
 
     const existingPost = await prisma.post.findUnique({

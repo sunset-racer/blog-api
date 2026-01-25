@@ -227,4 +227,5 @@ model PublishRequest {
   @@index([authorId])
   @@index([status])
   @@index([createdAt])
+  @@unique([postId, status])
 }

@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole, type AuthContext } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
-import { validateBody } from "@/utils/validation";
+import { validateBody, validateParams } from "@/utils/validation";
 import { createTagSchema, updateTagSchema } from "@/schemas/post.schema";
 import { generateUniqueTagSlug } from "@/utils/slug";
+import { idParamSchema, tagSlugParamSchema } from "@/schemas/params.schema";
 
 const tags = new Hono<AuthContext>();
 
@@ -38,7 +39,9 @@ tags.get("/", async (c) => {
 // GET SINGLE TAG BY SLUG
 // ============================================
 tags.get("/:slug", async (c) => {
-    const slug = c.req.param("slug");
+    const params = validateParams(c, tagSlugParamSchema);
+    if (!params) return;
+    const slug = params.slug;
 
     const tag = await prisma.tag.findUnique({
         where: { slug },
@@ -89,7 +92,7 @@ tags.get("/:slug", async (c) => {
         createdAt: tag.createdAt,
         updatedAt: tag.updatedAt,
         posts: tag.posts.map((pt) => pt.post),
-        postsCount: tag._count.posts,
+        postsCount: tag.posts.length,
     });
 });
 
@@ -130,7 +133,9 @@ tags.post("/", requireAuth, requireRole("ADMIN"), async (c) => {
 // UPDATE TAG (ADMIN only)
 // ============================================
 tags.put("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
-    const tagId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const tagId = params.id;
     const data = await validateBody(c, updateTagSchema);
     if (!data) return;
 
@@ -176,7 +181,9 @@ tags.put("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
 // DELETE TAG (ADMIN only)
 // ============================================
 tags.delete("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
-    const tagId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const tagId = params.id;
 
     const tag = await prisma.tag.findUnique({
         where: { id: tagId },

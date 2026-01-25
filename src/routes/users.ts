@@ -3,6 +3,10 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireRole, type AuthContext } from "@/middleware/auth";
+import { validateParams, validateQuery } from "@/utils/validation";
+import { getUsersQuerySchema } from "@/schemas/user.schema";
+import { userIdParamSchema } from "@/schemas/params.schema";
+import { sanitizeText, sanitizeUrl } from "@/utils/sanitize";
 
 const users = new Hono<AuthContext>();
 
@@ -67,17 +71,29 @@ users.patch("/me", requireAuth, zValidator("json", updateProfileSchema), async (
     // Prepare user update data
     const userUpdateData: { name?: string } = {};
     if (data.name !== undefined) {
-        userUpdateData.name = data.name;
+        const sanitizedName = sanitizeText(data.name);
+        if (sanitizedName.length < 2) {
+            return c.json({ error: "Name must be at least 2 characters" }, 400);
+        }
+        userUpdateData.name = sanitizedName;
     }
 
     // Prepare profile update data
     const profileUpdateData: { bio?: string | null; website?: string | null } = {};
     if (data.bio !== undefined) {
-        profileUpdateData.bio = data.bio;
+        profileUpdateData.bio = data.bio === null ? null : sanitizeText(data.bio);
     }
     if (data.website !== undefined) {
         // Convert empty string to null
-        profileUpdateData.website = data.website === "" ? null : data.website;
+        if (data.website === "" || data.website === null) {
+            profileUpdateData.website = null;
+        } else {
+            const sanitizedWebsite = sanitizeUrl(data.website);
+            if (!sanitizedWebsite) {
+                return c.json({ error: "Invalid website URL" }, 400);
+            }
+            profileUpdateData.website = sanitizedWebsite;
+        }
     }
 
     // Update user and profile in a transaction
@@ -125,11 +141,11 @@ users.patch("/me", requireAuth, zValidator("json", updateProfileSchema), async (
 
 // GET /api/users - List all users (admin only)
 users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
-    const { search, role, page = "1", limit = "20" } = c.req.query();
+    const query = validateQuery(c, getUsersQuerySchema);
+    if (!query) return;
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
-    const skip = (pageNum - 1) * limitNum;
+    const { search, role, page, limit } = query;
+    const skip = (page - 1) * limit;
 
     // Build where clause
     const where: Record<string, unknown> = {};
@@ -141,9 +157,7 @@ users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
         ];
     }
 
-    if (role && ["ADMIN", "AUTHOR", "READER"].includes(role)) {
-        where.role = role;
-    }
+    if (role) where.role = role;
 
     // Get users with counts
     const [usersData, total] = await Promise.all([
@@ -166,7 +180,7 @@ users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
             },
             orderBy: { createdAt: "desc" },
             skip,
-            take: limitNum,
+            take: limit,
         }),
         prisma.user.count({ where }),
     ]);
@@ -174,17 +188,19 @@ users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
     return c.json({
         users: usersData,
         pagination: {
-            page: pageNum,
-            limit: limitNum,
+            page,
+            limit,
             total,
-            totalPages: Math.ceil(total / limitNum),
+            totalPages: Math.ceil(total / limit),
         },
     });
 });
 
 // GET /api/users/:id - Get user by ID (admin only)
 users.get("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
-    const { id } = c.req.param();
+    const params = validateParams(c, userIdParamSchema);
+    if (!params) return;
+    const { id } = params;
 
     const user = await prisma.user.findUnique({
         where: { id },
@@ -226,7 +242,9 @@ users.patch(
     requireRole("ADMIN"),
     zValidator("json", updateRoleSchema),
     async (c) => {
-        const { id } = c.req.param();
+        const params = validateParams(c, userIdParamSchema);
+        if (!params) return;
+        const { id } = params;
         const { role } = c.req.valid("json");
         const currentUser = c.get("user");
 

@@ -62,6 +62,14 @@ export const updateCommentSchema = z.object({
     content: z.string().min(1).max(2000),
 });
 
+export const getCommentsQuerySchema = z.object({
+    search: z.string().optional(),
+    authorId: z.string().optional(),
+    postId: z.string().optional(),
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
+});
+
 // ============================================
 // PUBLISH REQUEST SCHEMAS
 // ============================================
@@ -74,6 +82,11 @@ export const rejectPublishRequestSchema = z.object({
     message: z.string().min(1, "Rejection reason is required").max(1000),
 });
 
+export const getPublishRequestsQuerySchema = z.object({
+    status: z.enum(["PENDING", "APPROVED", "REJECTED"]).optional(),
+    authorId: z.string().optional(),
+});
+
 // Type exports
 export type CreatePostInput = z.infer<typeof createPostSchema>;
 export type UpdatePostInput = z.infer<typeof updatePostSchema>;
@@ -83,5 +96,7 @@ export type CreateTagInput = z.infer<typeof createTagSchema>;
 export type UpdateTagInput = z.infer<typeof updateTagSchema>;
 export type CreateCommentInput = z.infer<typeof createCommentSchema>;
 export type UpdateCommentInput = z.infer<typeof updateCommentSchema>;
+export type GetCommentsQuery = z.infer<typeof getCommentsQuerySchema>;
 export type ApprovePublishRequestInput = z.infer<typeof approvePublishRequestSchema>;
 export type RejectPublishRequestInput = z.infer<typeof rejectPublishRequestSchema>;
+export type GetPublishRequestsQuery = z.infer<typeof getPublishRequestsQuerySchema>;

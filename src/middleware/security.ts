@@ -54,25 +54,31 @@ export async function requestValidation(c: Context, next: Next) {
     const method = c.req.method;
 
     // Block common attack paths
-    const blockedPaths = [
-        "/wp-admin",
-        "/wp-login",
-        "/xmlrpc.php",
-        "/phpmyadmin",
-        "/.env",
-        "/.git",
-        "/config.php",
-        "/admin.php",
-        "/.htaccess",
-        "/web.config",
+    const blockedSegments = [
+        "wp-admin",
+        "wp-login",
+        "xmlrpc.php",
+        "phpmyadmin",
+        ".env",
+        ".git",
+        "config.php",
+        "admin.php",
+        ".htaccess",
+        "web.config",
     ];
 
-    if (blockedPaths.some((blocked) => path.toLowerCase().includes(blocked))) {
+    const segments = path.toLowerCase().split("/").filter(Boolean);
+    if (segments.some((segment) => blockedSegments.includes(segment))) {
         return c.json({ error: "Forbidden" }, 403);
     }
 
     // Block requests with suspicious query parameters
-    const url = new URL(c.req.url);
+    let url: URL;
+    try {
+        url = new URL(c.req.url);
+    } catch {
+        return c.json({ error: "Invalid request" }, 400);
+    }
     const suspiciousParams = ["<script", "javascript:", "data:text/html", "onerror=", "onload="];
 
     for (const [, value] of url.searchParams) {

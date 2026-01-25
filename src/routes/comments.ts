@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole, optionalAuth, type AuthContext } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
-import { validateBody } from "@/utils/validation";
-import { createCommentSchema, updateCommentSchema } from "@/schemas/post.schema";
+import { validateBody, validateParams, validateQuery } from "@/utils/validation";
+import { createCommentSchema, getCommentsQuerySchema, updateCommentSchema } from "@/schemas/post.schema";
 import { escapeHtml } from "@/utils/sanitize";
+import { idParamSchema, postIdParamSchema } from "@/schemas/params.schema";
 
 const comments = new Hono<AuthContext>();
 
@@ -11,11 +12,11 @@ const comments = new Hono<AuthContext>();
 // GET ALL COMMENTS (Admin only)
 // ============================================
 comments.get("/all", requireAuth, requireRole("ADMIN"), async (c) => {
-    const { search, authorId, postId, page = "1", limit = "20" } = c.req.query();
+    const query = validateQuery(c, getCommentsQuerySchema);
+    if (!query) return;
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
-    const skip = (pageNum - 1) * limitNum;
+    const { search, authorId, postId, page, limit } = query;
+    const skip = (page - 1) * limit;
 
     // Build where clause
     const where: Record<string, unknown> = {};
@@ -54,7 +55,7 @@ comments.get("/all", requireAuth, requireRole("ADMIN"), async (c) => {
             },
             orderBy: { createdAt: "desc" },
             skip,
-            take: limitNum,
+            take: limit,
         }),
         prisma.comment.count({ where }),
     ]);
@@ -62,10 +63,10 @@ comments.get("/all", requireAuth, requireRole("ADMIN"), async (c) => {
     return c.json({
         comments: commentsData,
         pagination: {
-            page: pageNum,
-            limit: limitNum,
+            page,
+            limit,
             total,
-            totalPages: Math.ceil(total / limitNum),
+            totalPages: Math.ceil(total / limit),
         },
     });
 });
@@ -107,7 +108,9 @@ comments.get("/my-comments", requireAuth, async (c) => {
 // GET COMMENTS FOR A POST
 // ============================================
 comments.get("/posts/:postId", optionalAuth, async (c) => {
-    const postId = c.req.param("postId");
+    const params = validateParams(c, postIdParamSchema);
+    if (!params) return;
+    const postId = params.postId;
 
     // Check if post exists and is published
     const post = await prisma.post.findUnique({
@@ -152,7 +155,9 @@ comments.get("/posts/:postId", optionalAuth, async (c) => {
 // CREATE COMMENT
 // ============================================
 comments.post("/posts/:postId", requireAuth, async (c) => {
-    const postId = c.req.param("postId");
+    const params = validateParams(c, postIdParamSchema);
+    if (!params) return;
+    const postId = params.postId;
     const user = c.get("user");
     const data = await validateBody(c, createCommentSchema);
     if (!data) return;
@@ -199,7 +204,9 @@ comments.post("/posts/:postId", requireAuth, async (c) => {
 // UPDATE COMMENT (Owner or ADMIN only)
 // ============================================
 comments.put("/:id", requireAuth, async (c) => {
-    const commentId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const commentId = params.id;
     const user = c.get("user");
     const data = await validateBody(c, updateCommentSchema);
     if (!data) return;
@@ -246,7 +253,9 @@ comments.put("/:id", requireAuth, async (c) => {
 // DELETE COMMENT (Owner or ADMIN only)
 // ============================================
 comments.delete("/:id", requireAuth, async (c) => {
-    const commentId = c.req.param("id");
+    const params = validateParams(c, idParamSchema);
+    if (!params) return;
+    const commentId = params.id;
     const user = c.get("user");
 
     const existingComment = await prisma.comment.findUnique({
