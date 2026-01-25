@@ -46,14 +46,17 @@ jobs:
           BASE_BRANCH="main"
 
           PR_TITLE="chore: merge dev into main"
-          PR_BODY="## Automated PR from dev to main
+          PR_BODY=$(cat <<'EOF'
+          ## Automated PR from dev to main
 
-This PR is created automatically when changes land in \`dev\`.
+          This PR is created automatically when changes land in `dev`.
 
-### Checklist before merge
-- [ ] CodeRabbit review completed
-- [ ] Human reviewer(s) approved
-- [ ] All CI checks passing"
+          ### Checklist before merge
+          - [ ] CodeRabbit review completed
+          - [ ] Human reviewer(s) approved
+          - [ ] All CI checks passing
+          EOF
+          )
 
           # Check for existing open PRs from dev to main
           pr_count=$(gh pr list -R "$REPO" --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --json number --jq 'length')
