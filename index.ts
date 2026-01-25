@@ -1,1 +1,1 @@
-console.log("Hello Bun!");
+console.log("Hello Bun and Hono!");
