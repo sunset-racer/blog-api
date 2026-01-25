@@ -1,0 +1,94 @@
+# Auto PR Workflow
+# Automatically creates a PR from dev to main branch
+# CodeRabbit and reviewers check the PR before merge is allowed
+
+name: Auto PR dev to main
+
+on:
+  push:
+    branches:
+      - dev
+
+# Prevent concurrent runs to avoid race conditions when creating PRs
+concurrency:
+  group: auto-pr-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  create-or-update-pr:
+    name: Create or Update PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Ensure GitHub CLI is installed
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y gh
+          gh --version
+
+      - name: Create or update PR from dev to main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO="${{ github.repository }}"
+          HEAD_BRANCH="dev"
+          BASE_BRANCH="main"
+
+          PR_TITLE="chore: merge dev into main"
+          PR_BODY="## Automated PR from dev to main
+
+This PR is created automatically when changes land in \`dev\`.
+
+### Checklist before merge
+- [ ] CodeRabbit review completed
+- [ ] Human reviewer(s) approved
+- [ ] All CI checks passing"
+
+          # Check for existing open PRs from dev to main
+          pr_count=$(gh pr list -R "$REPO" --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --json number --jq 'length')
+
+          if [ "$pr_count" -gt 0 ]; then
+            # Get the most recently updated PR (number and url)
+            pr_number=$(gh pr list -R "$REPO" --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" \
+              --json number,updatedAt --jq 'sort_by(.updatedAt) | reverse | .[0].number')
+            pr_url=$(gh pr list -R "$REPO" --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" \
+              --json url,updatedAt --jq 'sort_by(.updatedAt) | reverse | .[0].url')
+
+            if [ "$pr_count" -gt 1 ]; then
+              pr_numbers=$(gh pr list -R "$REPO" --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" \
+                --json number --jq 'map(.number|tostring) | join(", ")')
+              echo "::warning::Multiple open dev->main PRs detected: ${pr_numbers}. Using PR #${pr_number}."
+            fi
+
+            echo "Existing PR #$pr_number detected. Leaving body untouched."
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+            echo "pr_action=exists" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if there are differences between branches before creating PR
+          compare_total=$(gh api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_BRANCH" --jq '.total_commits')
+          if [ "$compare_total" -eq 0 ]; then
+            echo "No differences between dev and main. Skipping PR creation."
+            echo "pr_action=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Create new PR - gh pr create outputs the URL directly to stdout
+          pr_url=$(gh pr create -R "$REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" \
+            --title "$PR_TITLE" --body "$PR_BODY")
+          echo "Created new PR: $pr_url"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "pr_action=created" >> "$GITHUB_OUTPUT"
