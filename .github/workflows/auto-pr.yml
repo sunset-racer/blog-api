@@ -95,3 +95,6 @@ jobs:
           echo "Created new PR: $pr_url"
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "pr_action=created" >> "$GITHUB_OUTPUT"
+
+          # Trigger CodeRabbit review for bot-authored PRs
+          gh pr comment -R "$REPO" "$pr_url" -b "@coderabbitai review"
