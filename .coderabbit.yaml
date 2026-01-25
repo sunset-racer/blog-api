@@ -3,12 +3,20 @@ language: "en-GB"
 early_access: false
 
 reviews:
-  profile: "chill"
+  profile: "assertive"
   request_changes_workflow: false
   high_level_summary: true
   poem: true
   review_status: true
   review_details: false
+  path_filters:
+    - "!node_modules/**"
+    - "!dist/**"
+    - "!build/**"
+    - "!coverage/**"
+    - "!generated/**"
+    - "!prisma/migrations/**"
+    - "!**/*.lock"
   auto_review:
     enabled: true
     drafts: false
@@ -27,22 +35,6 @@ reviews:
     - path: "**/*.json"
       instructions:
         "Use 2-space indentation and avoid trailing commas."
-
-path_filters:
-  exclude:
-    - "node_modules/**"
-    - "dist/**"
-    - "build/**"
-    - "coverage/**"
-    - "generated/**"
-    - "prisma/migrations/**"
-    - "**/*.lock"
-
-reviews_path_filters:
-  include:
-    - "src/**"
-    - "prisma/schema.prisma"
-    - "package.json"
 
 chat:
   auto_reply: true
