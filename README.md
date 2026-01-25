@@ -1,4 +1,4 @@
-# Blog API
+# TechBlog API
 
 REST API for a technical blogging platform with authentication, role-based authorization, and content management.
 
