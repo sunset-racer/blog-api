@@ -45,7 +45,7 @@ jobs:
           HEAD_BRANCH="dev"
           BASE_BRANCH="main"
 
-          PR_TITLE="chore: merge dev into main"
+          PR_TITLE="$(git log -1 --pretty=%s)"
           PR_BODY=$(cat <<'EOF'
           ## Automated PR from dev to main
 
