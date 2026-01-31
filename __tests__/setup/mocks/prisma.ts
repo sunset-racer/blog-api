@@ -15,21 +15,32 @@ import {
     PublishRequestStatus,
 } from "../../../generated/prisma/client.js";
 
-// Create a deep mock of PrismaClient
-export const prismaMock = mockDeep<PrismaClient>();
+// Create the mock - NOT using vi.hoisted, just a regular variable
+// The vi.mock factory will use dynamic import to get this
+const _prismaMock = mockDeep<PrismaClient>();
 
-// Mock the prisma module
-vi.mock("@/lib/prisma", () => ({
-    prisma: prismaMock,
-    pool: {
-        end: vi.fn().mockResolvedValue(undefined),
-    },
-    disconnectDatabase: vi.fn().mockResolvedValue(undefined),
-}));
+// Mock the prisma module using async factory with dynamic import
+vi.mock("@/lib/prisma", async () => {
+    // Dynamic import to get the mock from this file after it's initialized
+    const { getPrismaMock } = await import("./prisma");
+    return {
+        prisma: getPrismaMock(),
+        pool: {
+            end: vi.fn().mockResolvedValue(undefined),
+        },
+        disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+    };
+});
+
+// Export a getter function (not the hoisted variable directly)
+export const getPrismaMock = () => _prismaMock;
+
+// Export the mock for direct use in tests (this works because it's not vi.hoisted)
+export const prismaMock = _prismaMock;
 
 // Reset mocks before each test
 beforeEach(() => {
-    mockReset(prismaMock);
+    mockReset(_prismaMock);
 });
 
 // Export type for use in tests
