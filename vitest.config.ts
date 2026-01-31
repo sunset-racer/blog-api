@@ -47,5 +47,12 @@ export default defineConfig({
 
         // Globals (describe, it, expect available without import)
         globals: true,
+
+        // Server configuration for ESM handling
+        server: {
+            deps: {
+                inline: ["zod"],
+            },
+        },
     },
 });
