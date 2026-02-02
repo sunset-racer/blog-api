@@ -82,6 +82,12 @@ export const mockSupabaseClient = {
 export const resetSupabaseMocks = (): void => {
     mockBucket = createMockStorageBucket();
     mockSupabaseStorage.from.mockReturnValue(mockBucket);
+
+    // Reset auth mock to default unauthenticated state
+    mockSupabaseClient.auth.getSession.mockResolvedValue({
+        data: { session: null },
+        error: null
+    });
 };
 
 /**

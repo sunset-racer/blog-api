@@ -1,4 +1,22 @@
-import { vi, beforeEach, afterEach } from "vitest";
+import { vi, afterEach } from "vitest";
+
+// ============================================
+// Environment Variables (MUST BE FIRST)
+// ============================================
+
+// Set test environment variables BEFORE importing mocks
+// This prevents the real auth module from throwing errors about missing env vars
+Object.assign(process.env, {
+    NODE_ENV: "test",
+    DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+    DIRECT_URL: "postgresql://test:test@localhost:5432/test",
+    BETTER_AUTH_SECRET: "test-secret-at-least-32-characters-long!!",
+    BETTER_AUTH_URL: "http://localhost:3001",
+    FRONTEND_URL: "http://localhost:3000",
+    SUPABASE_URL: "https://test.supabase.co",
+    SUPABASE_ANON_KEY: "test-anon-key-for-testing-purposes",
+    PORT: "3001",
+});
 
 // ============================================
 // Import and Register All Mocks
@@ -14,35 +32,33 @@ export * from "./mocks/prisma";
 export * from "./mocks/auth";
 export * from "./mocks/supabase";
 
-// ============================================
-// Environment Variables
-// ============================================
-
-// Set test environment variables
-Object.assign(process.env, {
-    NODE_ENV: "test",
-    DATABASE_URL: "postgresql://test:test@localhost:5432/test",
-    DIRECT_URL: "postgresql://test:test@localhost:5432/test",
-    BETTER_AUTH_SECRET: "test-secret-at-least-32-characters-long!!",
-    BETTER_AUTH_URL: "http://localhost:3001",
-    FRONTEND_URL: "http://localhost:3000",
-    SUPABASE_URL: "https://test.supabase.co",
-    SUPABASE_ANON_KEY: "test-anon-key-for-testing-purposes",
-    PORT: "3001",
-});
+// Import for cleanup in afterEach
+import { prismaMock } from "./mocks/prisma";
+import { mockAuth } from "./mocks/auth";
+import { resetSupabaseMocks } from "./mocks/supabase";
+import { mockReset } from "vitest-mock-extended";
 
 // ============================================
 // Global Test Hooks
 // ============================================
 
-beforeEach(() => {
-    // Clear all mocks before each test
-    vi.clearAllMocks();
-});
-
 afterEach(() => {
     // Restore real timers if fake timers were used
     vi.useRealTimers();
+
+    // Reset all mocks to prevent test pollution
+    // We use mockReset from vitest-mock-extended to properly reset DeepMockProxy instances
+    // This clears call history and resets mock implementations to their defaults
+    mockReset(prismaMock);
+
+    // Reset auth mock to default unauthenticated state
+    mockAuth.api.getSession.mockResolvedValue(null);
+
+    // Reset Supabase mocks (storage + auth)
+    resetSupabaseMocks();
+
+    // Reset ID counter for consistent test IDs across test runs
+    resetIdCounter();
 });
 
 // ============================================

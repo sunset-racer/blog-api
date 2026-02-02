@@ -52,9 +52,9 @@ jobs:
           This PR is created automatically when changes land in `dev`.
 
           ### Checklist before merge
-          - [ ] CodeRabbit review completed
-          - [ ] Human reviewer(s) approved
-          - [ ] All CI checks passing
+          - [ ] All tests passing
+          - [ ] Greptile AI review completed
+          - [ ] Human reviewer(s) approved (if required)
           EOF
           )
 
@@ -96,5 +96,5 @@ jobs:
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "pr_action=created" >> "$GITHUB_OUTPUT"
 
-          # Trigger CodeRabbit review for bot-authored PRs
-          gh pr comment -R "$REPO" "$pr_url" -b "@coderabbitai review"
+          # Note: Greptile will automatically review this PR if configured
+          # No manual trigger needed unlike CodeRabbit

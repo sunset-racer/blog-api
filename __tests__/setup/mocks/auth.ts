@@ -116,15 +116,19 @@ export const mockAdminSession = (
 // Auth Module Mock
 // ============================================
 
-/**
- * Mock auth object that mimics Better-Auth's structure
- */
-export const mockAuth = {
-    api: {
-        getSession: vi.fn<(args: { headers: Headers }) => Promise<MockAuthSession | null>>(),
-    },
-    handler: vi.fn(),
-};
+// Import the mock module FIRST (synchronously, before vi.mock registration)
+// This ensures the mock instance exists when the factory runs
+import * as authMockModule from "../../../src/lib/__mocks__/auth";
+
+// Re-export the mockAuth for test files
+export const mockAuth = authMockModule.mockAuth;
+
+// Register mock with SYNCHRONOUS factory (returns already-imported module)
+vi.mock("@/lib/auth", () => authMockModule);
+
+// Note: mockReset: true in vitest.config.ts will reset the mock to its initial implementation
+// (returning null) before each test. This allows setupAdminAuth(), setupReaderAuth(), etc.
+// to override it in the test's beforeEach hook.
 
 /**
  * Setup the auth mock to return a specific session (or null for unauthenticated)
@@ -160,12 +164,3 @@ export const setupAdminAuth = (overrides: Partial<MockUser> = {}): void => {
 export const setupUnauthenticated = (): void => {
     setupAuthMock(null);
 };
-
-// ============================================
-// Module Mock Registration
-// ============================================
-
-// Mock the auth module
-vi.mock("@/lib/auth", () => ({
-    auth: mockAuth,
-}));

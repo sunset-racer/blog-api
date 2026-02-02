@@ -41,9 +41,10 @@ export default defineConfig({
         reporters: ["default"],
 
         // Mock configuration
-        clearMocks: true,
-        restoreMocks: true,
-        mockReset: true,
+        // Disable all automatic mock clearing to avoid issues with vitest-mock-extended
+        clearMocks: false,
+        restoreMocks: false,
+        mockReset: false,
 
         // Globals (describe, it, expect available without import)
         globals: true,
