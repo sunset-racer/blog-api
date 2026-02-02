@@ -1,1 +1,1 @@
-console.log("Hello Bun and Hono and more");
+console.log("Hello Bun and Hono and better auth");
