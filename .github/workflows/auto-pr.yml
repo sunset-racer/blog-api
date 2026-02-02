@@ -1,6 +1,6 @@
 # Auto PR Workflow
 # Automatically creates a PR from dev to main branch
-# CodeRabbit and reviewers check the PR before merge is allowed
+# CodeRabbit, Greptile, and reviewers check the PR before merge is allowed
 
 name: Auto PR dev to main
 
@@ -53,6 +53,7 @@ jobs:
 
           ### Checklist before merge
           - [ ] All tests passing
+          - [ ] CodeRabbit review completed
           - [ ] Greptile AI review completed
           - [ ] Human reviewer(s) approved (if required)
           EOF
@@ -96,5 +97,10 @@ jobs:
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "pr_action=created" >> "$GITHUB_OUTPUT"
 
-          # Note: Greptile will automatically review this PR if configured
-          # No manual trigger needed unlike CodeRabbit
+          # Trigger CodeRabbit review
+          gh pr comment -R "$REPO" "$pr_url" -b "@coderabbitai review"
+
+          # Trigger Greptile review
+          gh pr comment -R "$REPO" "$pr_url" -b "@greptileai"
+
+          echo "Triggered CodeRabbit and Greptile reviews"
