@@ -1,14 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { prisma } from "@/lib/prisma";
-import { requireAuth, requireRole, type AuthContext } from "@/middleware/auth";
+import type { PrismaClient } from "../../generated/prisma/client";
+import { createAuthMiddleware, type AuthContext, type AuthDependency } from "@/middleware/auth";
 import { validateParams, validateQuery } from "@/utils/validation";
 import { getUsersQuerySchema } from "@/schemas/user.schema";
 import { userIdParamSchema } from "@/schemas/params.schema";
 import { sanitizeText, sanitizeUrl } from "@/utils/sanitize";
-
-const users = new Hono<AuthContext>();
 
 // Update profile schema
 const updateProfileSchema = z.object({
@@ -22,147 +20,20 @@ const updateRoleSchema = z.object({
     role: z.enum(["ADMIN", "AUTHOR", "READER"]),
 });
 
-// ============================================
-// CURRENT USER ROUTES - Must be before /:id
-// ============================================
+export const createUsersRoute = (db: PrismaClient, authDep: AuthDependency) => {
+    const users = new Hono<AuthContext>();
+    const { requireAuth, requireRole } = createAuthMiddleware(authDep);
 
-// GET /api/users/me - Get current user's profile
-users.get("/me", requireAuth, async (c) => {
-    const currentUser = c.get("user");
+    // ============================================
+    // CURRENT USER ROUTES - Must be before /:id
+    // ============================================
 
-    const user = await prisma.user.findUnique({
-        where: { id: currentUser.id },
-        select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-            role: true,
-            emailVerified: true,
-            createdAt: true,
-            updatedAt: true,
-            profile: {
-                select: {
-                    bio: true,
-                    website: true,
-                },
-            },
-            _count: {
-                select: {
-                    posts: true,
-                    comments: true,
-                },
-            },
-        },
-    });
+    // GET /api/users/me - Get current user's profile
+    users.get("/me", requireAuth, async (c) => {
+        const currentUser = c.get("user");
 
-    if (!user) {
-        return c.json({ error: "User not found" }, 404);
-    }
-
-    return c.json(user);
-});
-
-// PATCH /api/users/me - Update current user's profile
-users.patch("/me", requireAuth, zValidator("json", updateProfileSchema), async (c) => {
-    const currentUser = c.get("user");
-    const data = c.req.valid("json");
-
-    // Prepare user update data
-    const userUpdateData: { name?: string } = {};
-    if (data.name !== undefined) {
-        const sanitizedName = sanitizeText(data.name);
-        if (sanitizedName.length < 2) {
-            return c.json({ error: "Name must be at least 2 characters" }, 400);
-        }
-        userUpdateData.name = sanitizedName;
-    }
-
-    // Prepare profile update data
-    const profileUpdateData: { bio?: string | null; website?: string | null } = {};
-    if (data.bio !== undefined) {
-        profileUpdateData.bio = data.bio === null ? null : sanitizeText(data.bio);
-    }
-    if (data.website !== undefined) {
-        // Convert empty string to null
-        if (data.website === "" || data.website === null) {
-            profileUpdateData.website = null;
-        } else {
-            const sanitizedWebsite = sanitizeUrl(data.website);
-            if (!sanitizedWebsite) {
-                return c.json({ error: "Invalid website URL" }, 400);
-            }
-            profileUpdateData.website = sanitizedWebsite;
-        }
-    }
-
-    // Update user and profile in a transaction
-    const updatedUser = await prisma.user.update({
-        where: { id: currentUser.id },
-        data: {
-            ...userUpdateData,
-            profile: {
-                upsert: {
-                    create: profileUpdateData,
-                    update: profileUpdateData,
-                },
-            },
-        },
-        select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-            role: true,
-            emailVerified: true,
-            createdAt: true,
-            updatedAt: true,
-            profile: {
-                select: {
-                    bio: true,
-                    website: true,
-                },
-            },
-            _count: {
-                select: {
-                    posts: true,
-                    comments: true,
-                },
-            },
-        },
-    });
-
-    return c.json(updatedUser);
-});
-
-// ============================================
-// ADMIN ROUTES
-// ============================================
-
-// GET /api/users - List all users (admin only)
-users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
-    const query = validateQuery(c, getUsersQuerySchema);
-    if (!query) return;
-
-    const { search, role, page, limit } = query;
-    const skip = (page - 1) * limit;
-
-    // Build where clause
-    const where: Record<string, unknown> = {};
-
-    if (search) {
-        where.OR = [
-            { name: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-        ];
-    }
-
-    if (role) where.role = role;
-
-    // Get users with counts
-    const [usersData, total] = await Promise.all([
-        prisma.user.findMany({
-            where,
+        const user = await db.user.findUnique({
+            where: { id: currentUser.id },
             select: {
                 id: true,
                 name: true,
@@ -171,6 +42,13 @@ users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
                 role: true,
                 emailVerified: true,
                 createdAt: true,
+                updatedAt: true,
+                profile: {
+                    select: {
+                        bio: true,
+                        website: true,
+                    },
+                },
                 _count: {
                     select: {
                         posts: true,
@@ -178,95 +56,60 @@ users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
                     },
                 },
             },
-            orderBy: { createdAt: "desc" },
-            skip,
-            take: limit,
-        }),
-        prisma.user.count({ where }),
-    ]);
-
-    return c.json({
-        users: usersData,
-        pagination: {
-            page,
-            limit,
-            total,
-            totalPages: Math.ceil(total / limit),
-        },
-    });
-});
-
-// GET /api/users/:id - Get user by ID (admin only)
-users.get("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
-    const params = validateParams(c, userIdParamSchema);
-    if (!params) return;
-    const { id } = params;
-
-    const user = await prisma.user.findUnique({
-        where: { id },
-        select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-            role: true,
-            emailVerified: true,
-            createdAt: true,
-            updatedAt: true,
-            profile: {
-                select: {
-                    bio: true,
-                    website: true,
-                },
-            },
-            _count: {
-                select: {
-                    posts: true,
-                    comments: true,
-                },
-            },
-        },
-    });
-
-    if (!user) {
-        return c.json({ error: "User not found" }, 404);
-    }
-
-    return c.json(user);
-});
-
-// PATCH /api/users/:id/role - Update user role (admin only)
-users.patch(
-    "/:id/role",
-    requireAuth,
-    requireRole("ADMIN"),
-    zValidator("json", updateRoleSchema),
-    async (c) => {
-        const params = validateParams(c, userIdParamSchema);
-        if (!params) return;
-        const { id } = params;
-        const { role } = c.req.valid("json");
-        const currentUser = c.get("user");
-
-        // Prevent admin from changing their own role
-        if (id === currentUser.id) {
-            return c.json({ error: "Cannot change your own role" }, 400);
-        }
-
-        // Check if user exists
-        const existingUser = await prisma.user.findUnique({
-            where: { id },
-            select: { id: true, role: true },
         });
 
-        if (!existingUser) {
+        if (!user) {
             return c.json({ error: "User not found" }, 404);
         }
 
-        // Update the user's role
-        const updatedUser = await prisma.user.update({
-            where: { id },
-            data: { role },
+        return c.json(user);
+    });
+
+    // PATCH /api/users/me - Update current user's profile
+    users.patch("/me", requireAuth, zValidator("json", updateProfileSchema), async (c) => {
+        const currentUser = c.get("user");
+        const data = c.req.valid("json");
+
+        // Prepare user update data
+        const userUpdateData: { name?: string } = {};
+        if (data.name !== undefined) {
+            const sanitizedName = sanitizeText(data.name);
+            if (sanitizedName.length < 2) {
+                return c.json({ error: "Name must be at least 2 characters" }, 400);
+            }
+            userUpdateData.name = sanitizedName;
+        }
+
+        // Prepare profile update data
+        const profileUpdateData: { bio?: string | null; website?: string | null } = {};
+        if (data.bio !== undefined) {
+            profileUpdateData.bio = data.bio === null ? null : sanitizeText(data.bio);
+        }
+        if (data.website !== undefined) {
+            // Convert empty string to null
+            if (data.website === "" || data.website === null) {
+                profileUpdateData.website = null;
+            } else {
+                const sanitizedWebsite = sanitizeUrl(data.website);
+                if (!sanitizedWebsite) {
+                    return c.json({ error: "Invalid website URL" }, 400);
+                }
+                profileUpdateData.website = sanitizedWebsite;
+            }
+        }
+
+        // Update user and profile in a transaction
+        const updatedUser = await db.user.update({
+            where: { id: currentUser.id },
+            data: {
+                ...userUpdateData,
+                profile: {
+                    upsert: {
+                        create: profileUpdateData,
+                        update: profileUpdateData,
+                    },
+                },
+            },
             select: {
                 id: true,
                 name: true,
@@ -275,6 +118,13 @@ users.patch(
                 role: true,
                 emailVerified: true,
                 createdAt: true,
+                updatedAt: true,
+                profile: {
+                    select: {
+                        bio: true,
+                        website: true,
+                    },
+                },
                 _count: {
                     select: {
                         posts: true,
@@ -285,7 +135,165 @@ users.patch(
         });
 
         return c.json(updatedUser);
-    }
-);
+    });
 
-export default users;
+    // ============================================
+    // ADMIN ROUTES
+    // ============================================
+
+    // GET /api/users - List all users (admin only)
+    users.get("/", requireAuth, requireRole("ADMIN"), async (c) => {
+        const query = validateQuery(c, getUsersQuerySchema);
+        if (!query) return;
+
+        const { search, role, page, limit } = query;
+        const skip = (page - 1) * limit;
+
+        // Build where clause
+        const where: Record<string, unknown> = {};
+
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+            ];
+        }
+
+        if (role) where.role = role;
+
+        // Get users with counts
+        const [usersData, total] = await Promise.all([
+            db.user.findMany({
+                where,
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    image: true,
+                    role: true,
+                    emailVerified: true,
+                    createdAt: true,
+                    _count: {
+                        select: {
+                            posts: true,
+                            comments: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: limit,
+            }),
+            db.user.count({ where }),
+        ]);
+
+        return c.json({
+            users: usersData,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
+    });
+
+    // GET /api/users/:id - Get user by ID (admin only)
+    users.get("/:id", requireAuth, requireRole("ADMIN"), async (c) => {
+        const params = validateParams(c, userIdParamSchema);
+        if (!params) return;
+        const { id } = params;
+
+        const user = await db.user.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+                role: true,
+                emailVerified: true,
+                createdAt: true,
+                updatedAt: true,
+                profile: {
+                    select: {
+                        bio: true,
+                        website: true,
+                    },
+                },
+                _count: {
+                    select: {
+                        posts: true,
+                        comments: true,
+                    },
+                },
+            },
+        });
+
+        if (!user) {
+            return c.json({ error: "User not found" }, 404);
+        }
+
+        return c.json(user);
+    });
+
+    // PATCH /api/users/:id/role - Update user role (admin only)
+    users.patch(
+        "/:id/role",
+        requireAuth,
+        requireRole("ADMIN"),
+        zValidator("json", updateRoleSchema),
+        async (c) => {
+            const params = validateParams(c, userIdParamSchema);
+            if (!params) return;
+            const { id } = params;
+            const { role } = c.req.valid("json");
+            const currentUser = c.get("user");
+
+            // Prevent admin from changing their own role
+            if (id === currentUser.id) {
+                return c.json({ error: "Cannot change your own role" }, 400);
+            }
+
+            // Check if user exists
+            const existingUser = await db.user.findUnique({
+                where: { id },
+                select: { id: true, role: true },
+            });
+
+            if (!existingUser) {
+                return c.json({ error: "User not found" }, 404);
+            }
+
+            // Update the user's role
+            const updatedUser = await db.user.update({
+                where: { id },
+                data: { role },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    image: true,
+                    role: true,
+                    emailVerified: true,
+                    createdAt: true,
+                    _count: {
+                        select: {
+                            posts: true,
+                            comments: true,
+                        },
+                    },
+                },
+            });
+
+            return c.json(updatedUser);
+        }
+    );
+
+    return users;
+};
+
+// For backward compatibility with existing imports
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
+export default createUsersRoute(prisma, auth);

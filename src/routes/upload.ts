@@ -1,12 +1,14 @@
 import { Hono } from "hono";
 import path from "path";
-import { requireAuth, type AuthContext } from "@/middleware/auth";
+import { createAuthMiddleware, type AuthContext, type AuthDependency } from "@/middleware/auth";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeFileName } from "@/utils/sanitize";
 import { validateBody } from "@/utils/validation";
 import { deleteUploadSchema } from "@/schemas/upload.schema";
 
-const upload = new Hono<AuthContext>();
+export const createUploadRoute = (authDep: AuthDependency) => {
+    const upload = new Hono<AuthContext>();
+    const { requireAuth } = createAuthMiddleware(authDep);
 const isProduction = process.env.NODE_ENV === "production";
 
 let supabase: ReturnType<typeof createClient> | null = null;
@@ -219,4 +221,9 @@ upload.delete("/image", requireAuth, async (c) => {
     }
 });
 
-export default upload;
+    return upload;
+};
+
+// For backward compatibility with existing imports
+import { auth } from "@/lib/auth";
+export default createUploadRoute(auth);

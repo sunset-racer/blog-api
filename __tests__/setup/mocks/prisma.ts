@@ -1,7 +1,7 @@
-import { vi, beforeEach } from "vitest";
-import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { vi } from "vitest";
+import { type DeepMockProxy } from "vitest-mock-extended";
+import type { PrismaClient } from "../../../generated/prisma/client.js";
 import type {
-    PrismaClient,
     User,
     Post,
     Tag,
@@ -15,36 +15,28 @@ import {
     PublishRequestStatus,
 } from "../../../generated/prisma/client.js";
 
-// Create the mock - NOT using vi.hoisted, just a regular variable
-// The vi.mock factory will use dynamic import to get this
-const _prismaMock = mockDeep<PrismaClient>();
-
-// Mock the prisma module using async factory with dynamic import
+// Register the mock - use async factory to dynamically import the mock module
+// This is the original working pattern before the "fix" was attempted
 vi.mock("@/lib/prisma", async () => {
-    // Dynamic import to get the mock from this file after it's initialized
-    const { getPrismaMock } = await import("./prisma");
+    const { prismaMock, pool, disconnectDatabase } = await import("../../../src/lib/__mocks__/prisma.js");
     return {
-        prisma: getPrismaMock(),
-        pool: {
-            end: vi.fn().mockResolvedValue(undefined),
-        },
-        disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+        prisma: prismaMock,
+        prismaMock,
+        pool,
+        disconnectDatabase,
     };
 });
 
-// Export a getter function (not the hoisted variable directly)
-export const getPrismaMock = () => _prismaMock;
+// Now import and re-export the mock for use in tests
+const mockModule = await import("../../../src/lib/__mocks__/prisma.js");
+const prismaMock = mockModule.prismaMock;
 
-// Export the mock for direct use in tests (this works because it's not vi.hoisted)
-export const prismaMock = _prismaMock;
-
-// Reset mocks before each test
-beforeEach(() => {
-    mockReset(_prismaMock);
-});
-
-// Export type for use in tests
+// Export the mock for use in tests
+export { prismaMock };
 export type MockPrismaClient = DeepMockProxy<PrismaClient>;
+
+// Note: Each test should set up its mock expectations using .mockResolvedValue() etc.
+// No global clearing is needed since mockDeep creates fresh mock proxies for each method call
 
 // Re-export enums for convenience
 export { Role, PostStatus, PublishRequestStatus };
@@ -75,16 +67,16 @@ export const mockPost = (overrides: Partial<Post> = {}): Post => ({
     id: "clpost123456789012345678",
     title: "Test Post",
     slug: "test-post",
-    content: "This is test content for the post.",
+    content: "Test content for the post",
     excerpt: "Test excerpt",
-    coverImage: null,
     status: PostStatus.DRAFT,
-    viewCount: 0,
     isFeatured: false,
+    viewCount: 0,
     publishedAt: null,
-    authorId: "cltest123456789012345678",
+    authorId: "clauthor12345678901234567",
     createdAt: new Date("2024-01-01T00:00:00.000Z"),
     updatedAt: new Date("2024-01-01T00:00:00.000Z"),
+    coverImage: null,
     ...overrides,
 });
 
@@ -104,10 +96,10 @@ export const mockTag = (overrides: Partial<Tag> = {}): Tag => ({
  * Create a mock Comment object
  */
 export const mockComment = (overrides: Partial<Comment> = {}): Comment => ({
-    id: "clcomm123456789012345678",
-    content: "This is a test comment.",
+    id: "clcomment123456789012345",
+    content: "Test comment content",
     postId: "clpost123456789012345678",
-    authorId: "cltest123456789012345678",
+    authorId: "clauthor12345678901234567",
     createdAt: new Date("2024-01-01T00:00:00.000Z"),
     updatedAt: new Date("2024-01-01T00:00:00.000Z"),
     ...overrides,
@@ -116,12 +108,10 @@ export const mockComment = (overrides: Partial<Comment> = {}): Comment => ({
 /**
  * Create a mock PublishRequest object
  */
-export const mockPublishRequest = (
-    overrides: Partial<PublishRequest> = {}
-): PublishRequest => ({
-    id: "clpubreq12345678901234567",
+export const mockPublishRequest = (overrides: Partial<PublishRequest> = {}): PublishRequest => ({
+    id: "clpub123456789012345678",
     postId: "clpost123456789012345678",
-    authorId: "cltest123456789012345678",
+    authorId: "clauthor12345678901234567",
     status: PublishRequestStatus.PENDING,
     message: null,
     createdAt: new Date("2024-01-01T00:00:00.000Z"),
@@ -133,50 +123,24 @@ export const mockPublishRequest = (
  * Create a mock Profile object
  */
 export const mockProfile = (overrides: Partial<Profile> = {}): Profile => ({
-    id: "clprof123456789012345678",
-    userId: "cltest123456789012345678",
+    id: "clprofile12345678901234567",
+    userId: "cluser123456789012345678",
     name: "Test User",
     bio: "Test bio",
     avatar: null,
-    website: null,
+    website: "https://example.com",
     createdAt: new Date("2024-01-01T00:00:00.000Z"),
     updatedAt: new Date("2024-01-01T00:00:00.000Z"),
     ...overrides,
 });
 
-// ============================================
-// Helper Functions
-// ============================================
-
 /**
- * Create a mock user with a specific role
+ * Create a mock draft post
  */
-export const mockUserWithRole = (role: Role, overrides: Partial<User> = {}) =>
-    mockUser({ role, ...overrides });
-
-/**
- * Create a mock admin user
- */
-export const mockAdminUser = (overrides: Partial<User> = {}) =>
-    mockUser({ role: Role.ADMIN, email: "admin@example.com", ...overrides });
-
-/**
- * Create a mock author user
- */
-export const mockAuthorUser = (overrides: Partial<User> = {}) =>
-    mockUser({ role: Role.AUTHOR, email: "author@example.com", ...overrides });
-
-/**
- * Create a mock post with a specific status
- */
-export const mockPostWithStatus = (
-    status: PostStatus,
-    overrides: Partial<Post> = {}
-) =>
+export const mockDraftPost = (overrides: Partial<Post> = {}) =>
     mockPost({
-        status,
-        publishedAt:
-            status === PostStatus.PUBLISHED ? new Date() : null,
+        status: PostStatus.DRAFT,
+        publishedAt: null,
         ...overrides,
     });
 

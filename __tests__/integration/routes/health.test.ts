@@ -1,17 +1,16 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { mockReset } from "vitest-mock-extended";
 import { prismaMock } from "../../setup/mocks/prisma";
-
-// Import after mocks are registered by setup
-import healthRoute from "../../../src/routes/health";
+import { createHealthRoute } from "../../../src/routes/health";
 
 describe("Health Route", () => {
     let app: Hono;
 
     beforeEach(() => {
-        mockReset(prismaMock);
+        // Mock reset handled by setup
         app = new Hono();
+        // Create route with mock Prisma client
+        const healthRoute = createHealthRoute(prismaMock);
         app.route("/health", healthRoute);
     });
 

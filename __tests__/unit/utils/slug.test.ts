@@ -1,15 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "../../../generated/prisma/client.js";
+import { describe, it, expect } from "vitest";
 import { slugify, generateUniqueSlug, generateUniqueTagSlug } from "../../../src/utils/slug";
-
-// Create the mock for dependency injection
-const prismaMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
-
-// Reset mock state before each test
-beforeEach(() => {
-    mockReset(prismaMock);
-});
+import { prismaMock } from "../../setup/mocks/prisma";
 
 describe("slug utilities", () => {
 

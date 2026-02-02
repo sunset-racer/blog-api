@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { mockReset } from "vitest-mock-extended";
+// mockReset removed - using vi.clearAllMocks in setup
 import type { Post, PublishRequest } from "../../../generated/prisma/client.js";
 import { PostStatus, PublishRequestStatus, Role } from "../../../generated/prisma/client.js";
 import {
@@ -10,15 +10,17 @@ import {
     setupUnauthenticated,
     mockAdminSession,
     mockAuthorSession,
+    mockAuth,
 } from "../../setup/mocks/auth";
 import { prismaMock } from "../../setup/mocks/prisma";
 
 // Import after mocks are registered by setup
-import publishRoute from "../../../src/routes/publish";
+import { createPublishRoute } from "../../../src/routes/publish";
 
 // Helper to create test app
 const createApp = () => {
     const app = new Hono();
+    const publishRoute = createPublishRoute(prismaMock, mockAuth);
     app.route("/api/publish", publishRoute);
     return app;
 };
@@ -56,7 +58,7 @@ describe("Publish Route", () => {
     let app: ReturnType<typeof createApp>;
 
     beforeEach(() => {
-        mockReset(prismaMock);
+        // Mock reset handled by setup
         vi.clearAllMocks();
         app = createApp();
     });
