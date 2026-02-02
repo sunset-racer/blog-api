@@ -1,4 +1,4 @@
-# Auto PR Workflow
+# Auto PR Workflow for Blog API
 # Automatically creates a PR from dev to main branch
 # CodeRabbit, Greptile, and reviewers check the PR before merge is allowed
 

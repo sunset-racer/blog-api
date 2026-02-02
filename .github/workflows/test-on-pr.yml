@@ -1,6 +1,6 @@
 # Test Workflow for Pull Requests
 # Runs all tests when a PR is opened or updated
-# Must pass before merging to main
+# Must pass tests before merging to main
 
 name: Run Tests
 
